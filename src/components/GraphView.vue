@@ -558,6 +558,19 @@ function getEngagementMetrics(eventId: string): {
 
 // Helper: Render HTML for event node
 function renderEventNode(d: any): string {
+  // Handle tag nodes
+  if (d.data?.type === 'tag') {
+    const tag = d.data?.tag || ''
+    const nodeId = d.id || ''
+    const tagColor = d.data?.color || '#f59e0b'
+    
+    return `
+      <div class="node-circle tag-node" data-item-id="${nodeId}" data-tag="${tag}" style="background: ${tagColor}; border: 4px solid ${tagColor};">
+        <span class="node-tag-label">#${tag}</span>
+      </div>
+    `
+  }
+  
   // Handle pubkey (author) nodes
   if (d.data?.type === 'pubkey') {
     const profile = d.data?.profile
@@ -992,12 +1005,71 @@ function showContextMenu(x: number, y: number, title: string, actions: Array<{ l
   contextMenu.value = { show: true, x, y, title, actions }
 }
 
+// Helper: Create or get tag node
+function createTagNode(tag: string) {
+  const tagNodeId = `tag:${tag.toLowerCase()}`
+  
+  // Check if tag node already exists
+  const existingNode = graphStore.nodes.find((n: any) => n.id === tagNodeId)
+  if (existingNode) {
+    return tagNodeId
+  }
+  
+  // Create new tag node
+  const tagNode = {
+    id: tagNodeId,
+    label: `#${tag}`,
+    data: {
+      type: 'tag',
+      tag: tag,
+      color: '#f59e0b',
+    }
+  }
+  
+  graphStore.addNode(tagNode)
+  return tagNodeId
+}
+
+// Helper: Connect events with tag to tag node
+function connectEventsToTag(tag: string, tagNodeId: string) {
+  const edges: any[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    if (!event) return
+    
+    // Check if this event has the tag
+    const hasTag = event.tags?.some((t: string[]) => 
+      t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
+    )
+    
+    if (hasTag) {
+      // Create edge from event to tag node
+      const edge = {
+        source: event.id,
+        target: tagNodeId,
+        data: {
+          type: 'has-tag',
+        }
+      }
+      edges.push(edge)
+    }
+  })
+  
+  // Add all edges
+  edges.forEach(edge => graphStore.addEdge(edge))
+  return edges.length
+}
+
 // Expansion functions
 async function expandByTag(tag: string) {
   contextMenu.value.show = false
   showMessage(`Expanding posts with #${tag}...`, 'info')
   
   try {
+    // Create tag node
+    const tagNodeId = createTagNode(tag)
+    
     // Fetch events with this t-tag
     const events = await fetchInitialEvents([
       { '#t': [tag.toLowerCase()], kinds: [1, 30023], limit: 50 }
@@ -1005,9 +1077,15 @@ async function expandByTag(tag: string) {
     
     if (events.length > 0) {
       graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} posts with #${tag}`, 'success')
+      
+      // Connect all events (new and existing) to tag node
+      const connectedCount = connectEventsToTag(tag, tagNodeId)
+      
+      showMessage(`Added ${events.length} posts with #${tag} (${connectedCount} connections)`, 'success')
     } else {
-      showMessage(`No posts found with #${tag}`, 'info')
+      // Still create connections to existing events
+      const connectedCount = connectEventsToTag(tag, tagNodeId)
+      showMessage(`No new posts found, but connected ${connectedCount} existing posts to #${tag}`, 'info')
     }
   } catch (error) {
     console.error('Failed to expand tag posts:', error)
@@ -1200,10 +1278,17 @@ function filterByTag(tag: string) {
   
   if (!graph) return
   
+  // Create tag node
+  const tagNodeId = createTagNode(tag)
+  
+  // Connect all events with this tag to the tag node
+  const connectedCount = connectEventsToTag(tag, tagNodeId)
+  
   // Use visibility property to hide/show nodes
   const updates: any[] = []
   graphStore.nodes.forEach((node: any) => {
     const event = node.data?.event
+    const isTagNode = node.data?.type === 'tag'
     const hasTags = event?.tags?.some((t: string[]) => 
       t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
     )
@@ -1212,7 +1297,7 @@ function filterByTag(tag: string) {
       id: node.id,
       style: {
         ...node.style,
-        visibility: hasTags ? 'visible' : 'hidden'
+        visibility: (hasTags || isTagNode) ? 'visible' : 'hidden'
       }
     })
   })
@@ -1222,7 +1307,7 @@ function filterByTag(tag: string) {
     graph.render()
   }
   
-  showMessage(`Filtered to #${tag}`, 'success')
+  showMessage(`Filtered to #${tag} (${connectedCount} connections)`, 'success')
 }
 
 function filterByAuthor(pubkey: string) {
@@ -1659,6 +1744,23 @@ onMounted(() => {
       }
     }
     
+    // Check if clicking on a tag node (tag circle)
+    const tagNodeEl = target.closest('.tag-node[data-item-id][data-tag]')
+    if (tagNodeEl) {
+      const nodeId = tagNodeEl.getAttribute('data-item-id')
+      const tag = tagNodeEl.getAttribute('data-tag')
+      
+      if (nodeId && tag) {
+        showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, [
+          { label: 'Expand more posts with this tag', icon: 'mdi-tag-plus', handler: () => expandByTag(tag) },
+          { label: 'Filter to show only this tag', icon: 'mdi-filter', handler: () => filterByTag(tag) },
+          { label: 'Highlight posts with this tag', icon: 'mdi-marker', handler: () => highlightByTag(tag) },
+          { label: 'Remove this tag node', icon: 'mdi-delete', handler: () => removeNode(nodeId) },
+        ])
+        return
+      }
+    }
+    
     // Check if clicking on a tag
     const tagEl = target.closest('[data-tag]')
     if (tagEl) {
@@ -1953,11 +2055,11 @@ async function handleExpand(eventId: string) {
 }
 
 /* Event node styles (injected into G6 HTML nodes) */
-/* Circular node (collapsed state) */
+/* Collapsed node (square with rounded corners) */
 :deep(.node-circle) {
   width: 60px;
   height: 60px;
-  border-radius: 50%;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1998,6 +2100,33 @@ async function handleExpand(eventId: string) {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+:deep(.node-circle.tag-node) {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-width: 4px;
+  border-style: solid;
+}
+
+:deep(.node-circle.tag-node:hover) {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+}
+
+:deep(.node-tag-label) {
+  font-size: 32px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  user-select: none;
+  text-align: center;
+  line-height: 1;
 }
 
 :deep(.node-circle.loading) {
