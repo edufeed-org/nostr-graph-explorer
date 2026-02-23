@@ -15,6 +15,30 @@
           hide-details
         ></v-select>
         
+        <!-- Filter/Highlight Controls -->
+        <div class="d-flex gap-1 mt-2">
+          <v-btn 
+            @click="clearFilters" 
+            size="small" 
+            variant="tonal" 
+            color="primary"
+            prepend-icon="mdi-filter-off"
+            block
+          >
+            Clear Filters
+          </v-btn>
+          <v-btn 
+            @click="resetHighlights" 
+            size="small" 
+            variant="tonal" 
+            color="secondary"
+            prepend-icon="mdi-format-color-highlight-off"
+            block
+          >
+            Reset Style
+          </v-btn>
+        </div>
+        
         <v-divider class="my-2"></v-divider>
         
         <!-- Layout Settings -->
@@ -203,6 +227,26 @@
         <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
       </template>
     </v-snackbar>
+    
+    <!-- Context Menu -->
+    <v-menu
+      v-model="contextMenu.show"
+      :location="'bottom'"
+      :style="{ position: 'fixed', left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+    >
+      <v-list density="compact" min-width="200">
+        <v-list-subheader>{{ contextMenu.title }}</v-list-subheader>
+        
+        <v-list-item
+          v-for="action in contextMenu.actions"
+          :key="action.label"
+          @click="action.handler"
+          :prepend-icon="action.icon"
+        >
+          <v-list-item-title>{{ action.label }}</v-list-item-title>
+        </v-list-item>
+      </v-list>
+    </v-menu>
   </v-container>
 </template>
 
@@ -403,7 +447,7 @@ const layoutOptions = computed(() => {
   })
 })
 
-const { fetchGlobalFeed, isFetching } = useEventFetcher()
+const { fetchGlobalFeed, fetchInitialEvents, fetchByAuthor, expandAroundEvent, fetchUserGraph, isFetching } = useEventFetcher()
 
 const snackbar = ref({
   show: false,
@@ -411,6 +455,106 @@ const snackbar = ref({
   color: 'success',
   timeout: 3000,
 })
+
+// Context menu state
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  title: '',
+  actions: [] as Array<{ label: string, icon: string, handler: () => void }>
+})
+
+// Helper: Get border color for event kind
+function getKindColor(kind: number): string {
+  const colors: Record<number, string> = {
+    0: '#3b82f6',     // Profile - blue
+    1: '#10b981',     // Note - green
+    3: '#f59e0b',     // Contacts - amber
+    4: '#8b5cf6',     // DM - purple
+    5: '#ef4444',     // Delete - red
+    6: '#06b6d4',     // Repost - cyan
+    7: '#ec4899',     // Reaction - pink
+    9735: '#f59e0b',  // Zap - amber/gold
+    30023: '#6366f1', // Article - indigo
+  }
+  return colors[kind] || '#6b7280' // gray default
+}
+
+// Helper: Extract tags from event
+function extractTags(event: any): string[] {
+  if (!event.tags) return []
+  return event.tags
+    .filter((tag: any) => tag[0] === 't' && tag[1])
+    .map((tag: any) => tag[1])
+}
+
+// Helper: Extract mentions from event
+function extractMentions(event: any): Array<{pubkey: string, relay?: string}> {
+  if (!event.tags) return []
+  return event.tags
+    .filter((tag: any) => tag[0] === 'p' && tag[1])
+    .map((tag: any) => ({ pubkey: tag[1], relay: tag[2] }))
+}
+
+// Helper: Check if event is a reply
+function isReply(event: any): { isReply: boolean, replyTo?: string, root?: string } {
+  if (!event.tags) return { isReply: false }
+  
+  const eTags = event.tags.filter((tag: any) => tag[0] === 'e' && tag[1])
+  if (eTags.length === 0) return { isReply: false }
+  
+  // Find root and reply markers
+  const rootTag = eTags.find((tag: any) => tag[3] === 'root')
+  const replyTag = eTags.find((tag: any) => tag[3] === 'reply')
+  
+  return {
+    isReply: true,
+    root: rootTag ? rootTag[1] : eTags[0][1],
+    replyTo: replyTag ? replyTag[1] : (eTags.length > 1 ? eTags[eTags.length - 1][1] : undefined)
+  }
+}
+
+// Helper: Format relative time
+function getRelativeTime(timestamp: number): string {
+  const seconds = Math.floor(Date.now() / 1000 - timestamp)
+  
+  if (seconds < 60) return 'just now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`
+  if (seconds < 2592000) return `${Math.floor(seconds / 604800)}w ago`
+  return new Date(timestamp * 1000).toLocaleDateString()
+}
+
+// Helper: Count engagement metrics for an event
+function getEngagementMetrics(eventId: string): {
+  replies: number
+  reactions: number
+  reposts: number
+  zaps: number
+} {
+  const metrics = { replies: 0, reactions: 0, reposts: 0, zaps: 0 }
+  
+  // Count from all nodes in the graph
+  graphStore.nodes.forEach(node => {
+    const event = node.data?.event
+    if (!event) return
+    
+    // Check if this event references the target event
+    const eTags = event.tags?.filter((t: string[]) => t[0] === 'e') || []
+    const referencesEvent = eTags.some((t: string[]) => t[1] === eventId)
+    
+    if (referencesEvent) {
+      if (event.kind === 1) metrics.replies++
+      else if (event.kind === 7) metrics.reactions++
+      else if (event.kind === 6) metrics.reposts++
+      else if (event.kind === 9735) metrics.zaps++
+    }
+  })
+  
+  return metrics
+}
 
 // Helper: Render HTML for event node
 function renderEventNode(d: any): string {
@@ -421,17 +565,20 @@ function renderEventNode(d: any): string {
     
     // If collapsed, show compact profile circle
     if (!expanded) {
+      const nodeId = d.id || ''
+      const pubkey = d.data?.pubkey || ''
+      
       if (profile?.picture) {
         // Show profile picture
         return `
-          <div class="node-circle pubkey-node with-picture" style="background: #fff;">
+          <div class="node-circle pubkey-node with-picture" data-item-id="${nodeId}" data-pubkey="${pubkey}" style="background: #fff;">
             <img src="${profile.picture}" class="profile-picture" alt="${profile.name || 'User'}" />
           </div>
         `
       } else {
         // Show default user icon
         return `
-          <div class="node-circle pubkey-node" style="background: #6366f1;">
+          <div class="node-circle pubkey-node" data-item-id="${nodeId}" data-pubkey="${pubkey}" style="background: #6366f1;">
             <span class="node-emoji">👤</span>
           </div>
         `
@@ -481,8 +628,10 @@ function renderEventNode(d: any): string {
     }
     
     // No profile data available
+    const noProfNodeId = d.id || ''
+    const noProfPubkey = d.data?.pubkey || ''
     return `
-      <div class="node-circle pubkey-node" style="background: #6366f1;">
+      <div class="node-circle pubkey-node" data-item-id="${noProfNodeId}" data-pubkey="${noProfPubkey}" style="background: #6366f1;">
         <span class="node-emoji">👤</span>
       </div>
     `
@@ -495,46 +644,52 @@ function renderEventNode(d: any): string {
   const expanded = !!d.data?.expanded
   const kind = event.kind
   const typeLabel = getEventTypeLabel(kind)
+  const kindColor = getKindColor(kind)
   
   // If collapsed, render as simple circle
   if (!expanded) {
-    const kindColors: Record<number, string> = {
-      0: '#3b6dff',
-      1: '#23a455',
-      3: '#f2a52b',
-      7: '#ff6384',
-    }
-    const color = kindColors[kind] || '#1976d2'
     const emoji = typeLabel.split(' ')[0] // Get just the emoji
     
     return `
-      <div class="node-circle kind-${kind}" style="background: ${color};">
+      <div class="node-circle kind-${kind}" style="background: ${kindColor}; border: 3px solid ${kindColor};">
         <span class="node-emoji">${emoji}</span>
       </div>
     `
   }
   
-  // Expanded: render as window
+  // Expanded: render detailed card with all metadata
   const safe = (s: string) =>
-    String(s)
+    String(s || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;')
   
-  const cls = `event-node expanded kind-${kind}`
+  const nodeId = safe(d.id || '')
+  const timestamp = getRelativeTime(event.created_at)
+  const absoluteTime = new Date(event.created_at * 1000).toLocaleString()
   
-  // Format content
+  // Extract metadata
+  const tags = extractTags(event)
+  const mentions = extractMentions(event)
+  const threadInfo = isReply(event)
+  
+  // Get engagement metrics
+  const metrics = getEngagementMetrics(event.id)
+  
+  // Get author info (from graph data if available)
+  const authorPubkey = safe(event.pubkey)
+  const authorDisplay = authorPubkey.slice(0, 8) + '...'
+  
+  // Format content with markdown for kind 1 and 30023
   let bodyContent = ''
-  if (kind === 1) {
-    // Render markdown for notes
-    bodyContent = safe(md.render(event.content).replace(/<[^>]*>/g, ''))
+  if (kind === 1 || kind === 30023) {
+    bodyContent = md.render(event.content)
   } else if (kind === 0) {
-    // Format profile JSON
     try {
       const profile = JSON.parse(event.content)
-      bodyContent = safe(JSON.stringify(profile, null, 2))
+      bodyContent = `<pre>${safe(JSON.stringify(profile, null, 2))}</pre>`
     } catch {
       bodyContent = safe(event.content)
     }
@@ -542,26 +697,69 @@ function renderEventNode(d: any): string {
     bodyContent = safe(event.content)
   }
   
-  const timestamp = new Date(event.created_at * 1000).toLocaleString()
-  const nodeId = safe(d.id || '')
+  // Calculate dynamic height based on content
+  const contentLength = event.content.length
+  const baseHeight = 200
+  const heightPerChar = 0.3
+  const maxHeight = 600
+  const minHeight = 200
+  const dynamicHeight = Math.min(maxHeight, Math.max(minHeight, baseHeight + contentLength * heightPerChar))
   
   return `
-    <div class="${cls}" data-item-id="${nodeId}">
-      <div class="event-titlebar" data-role="titlebar">
-        <div class="event-left">
-          <span class="event-badge">${typeLabel}</span>
-          <span class="event-title">${safe(event.id.slice(0, 8))}...</span>
+    <div class="nostr-card" 
+         data-item-id="${nodeId}" 
+         data-kind="${kind}"
+         data-author="${authorPubkey}"
+         style="border-left: 4px solid ${kindColor}; min-height: ${Math.min(300, dynamicHeight)}px;">
+      
+      <!-- Card Header -->
+      <div class="card-header">
+        <div class="card-header-left">
+          <span class="kind-badge" style="background: ${kindColor};">${typeLabel}</span>
+          ${threadInfo.isReply ? '<span class="thread-indicator" title="Reply">↩️</span>' : ''}
+          ${kind === 6 ? '<span class="thread-indicator" title="Repost">🔄</span>' : ''}
         </div>
-        <div class="event-close" data-role="close">×</div>
+        <button class="card-close" data-role="close" title="Close">×</button>
       </div>
-      <div class="event-body">
-        <div class="event-meta">
-          <div><strong>Author:</strong> ${safe(event.pubkey.slice(0, 16))}...</div>
-          <div><strong>Time:</strong> ${timestamp}</div>
-          <div><strong>Kind:</strong> ${kind}</div>
+      
+      <!-- Author Info -->
+      <div class="card-author" data-author-pubkey="${authorPubkey}">
+        <div class="author-avatar" style="background: ${kindColor};">👤</div>
+        <div class="author-info">
+          <div class="author-name" title="${authorPubkey}">${authorDisplay}</div>
+          <div class="card-timestamp" title="${absoluteTime}">${timestamp}</div>
         </div>
-        <div class="event-content">${bodyContent}</div>
       </div>
+      
+      <!-- Content -->
+      <div class="card-content markdown-content">
+        ${bodyContent}
+      </div>
+      
+      <!-- Tags -->
+      ${tags.length > 0 ? `
+        <div class="card-tags">
+          ${tags.map(tag => `<span class="tag-badge" data-tag="${safe(tag)}">#${safe(tag)}</span>`).join('')}
+        </div>
+      ` : ''}
+      
+      <!-- Mentions -->
+      ${mentions.length > 0 ? `
+        <div class="card-mentions">
+          <span class="mentions-label">Mentioned:</span>
+          ${mentions.slice(0, 3).map(m => `<span class="mention-badge" data-mention="${m.pubkey}" title="${m.pubkey}">@${m.pubkey.slice(0, 8)}...</span>`).join('')}
+          ${mentions.length > 3 ? `<span class="mention-more">+${mentions.length - 3} more</span>` : ''}
+        </div>
+      ` : ''}
+      
+      <!-- Footer with engagement metrics -->
+      <div class="card-footer">
+        <span class="footer-stat" title="Replies">💬 ${metrics.replies || 0}</span>
+        <span class="footer-stat" title="Reactions">❤️ ${metrics.reactions || 0}</span>
+        <span class="footer-stat" title="Reposts">🔄 ${metrics.reposts || 0}</span>
+        <span class="footer-stat" title="Zaps">⚡ ${metrics.zaps || 0}</span>
+      </div>
+      
     </div>
   `
 }
@@ -585,21 +783,18 @@ function getEventTypeLabel(kind: number): string {
 function getLayoutConfig(type: string) {
   const settings = layoutSettings.value
   
-  // Helper: Get actual node size based on expanded state
-  const getNodeSize = (node: any) => {
-    const expanded = node.data?.expanded
-    if (expanded) {
-      return Math.max(400, 300) // Use max dimension for radius calculations
-    }
-    return 60
+  // Helper: Get actual node size - always use card size for layout spacing
+  // (Visual rendering stays small when collapsed, but layout reserves full card space)
+  const getNodeSize = (_node: any) => {
+    return Math.max(400, 300) // Use max dimension for radius calculations (always card size)
   }
   
-  const getNodeWidth = (node: any) => {
-    return node.data?.expanded ? 400 : 60
+  const getNodeWidth = (_node: any) => {
+    return 400 // Always reserve card width
   }
   
-  const getNodeHeight = (node: any) => {
-    return node.data?.expanded ? 300 : 60
+  const getNodeHeight = (_node: any) => {
+    return 300 // Always reserve card height
   }
   
   switch (type) {
@@ -792,6 +987,515 @@ watch(isTreeCompatible, (isTree) => {
   }
 })
 
+// Context menu helper functions
+function showContextMenu(x: number, y: number, title: string, actions: Array<{ label: string, icon: string, handler: () => void }>) {
+  contextMenu.value = { show: true, x, y, title, actions }
+}
+
+// Expansion functions
+async function expandByTag(tag: string) {
+  contextMenu.value.show = false
+  showMessage(`Expanding posts with #${tag}...`, 'info')
+  
+  try {
+    // Fetch events with this t-tag
+    const events = await fetchInitialEvents([
+      { '#t': [tag.toLowerCase()], kinds: [1, 30023], limit: 50 }
+    ], { timeout: 5000 })
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} posts with #${tag}`, 'success')
+    } else {
+      showMessage(`No posts found with #${tag}`, 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand tag posts:', error)
+    showMessage('Failed to expand tag posts', 'error')
+  }
+}
+
+async function expandAuthorPosts(pubkey: string) {
+  contextMenu.value.show = false
+  showMessage(`Expanding posts by ${pubkey.slice(0, 8)}...`, 'info')
+  
+  try {
+    const events = await fetchByAuthor(pubkey, 50)
+    const notes = events.filter(e => e.kind === 1)
+    
+    if (notes.length > 0) {
+      graphStore.updateWithEvents(notes)
+      showMessage(`Added ${notes.length} posts from author`, 'success')
+    } else {
+      showMessage('No posts found from this author', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand author posts:', error)
+    showMessage('Failed to expand author posts', 'error')
+  }
+}
+
+async function expandAuthorArticles(pubkey: string) {
+  contextMenu.value.show = false
+  showMessage(`Expanding articles by ${pubkey.slice(0, 8)}...`, 'info')
+  
+  try {
+    const events = await fetchInitialEvents([
+      { authors: [pubkey], kinds: [30023], limit: 20 }
+    ], { timeout: 5000 })
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} articles from author`, 'success')
+    } else {
+      showMessage('No articles found from this author', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand author articles:', error)
+    showMessage('Failed to expand author articles', 'error')
+  }
+}
+
+async function expandAuthorProfile(pubkey: string) {
+  contextMenu.value.show = false
+  showMessage(`Fetching profile for ${pubkey.slice(0, 8)}...`, 'info')
+  
+  try {
+    const events = await fetchInitialEvents([
+      { authors: [pubkey], kinds: [0], limit: 1 }
+    ], { timeout: 5000 })
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage('Profile added to graph', 'success')
+    } else {
+      showMessage('Profile not found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to fetch author profile:', error)
+    showMessage('Failed to fetch author profile', 'error')
+  }
+}
+
+async function expandAuthorNetwork(pubkey: string) {
+  contextMenu.value.show = false
+  showMessage(`Expanding social network for ${pubkey.slice(0, 8)}...`, 'info')
+  
+  try {
+    const { follows, events } = await fetchUserGraph(pubkey)
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} events from network (${follows.length} contacts)`, 'success')
+    } else {
+      showMessage('No network data found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand social network:', error)
+    showMessage('Failed to expand social network', 'error')
+  }
+}
+
+async function expandThread(eventId: string) {
+  contextMenu.value.show = false
+  showMessage('Expanding thread...', 'info')
+  
+  try {
+    const { replies } = await expandAroundEvent(eventId)
+    
+    if (replies.length > 0) {
+      graphStore.updateWithEvents(replies)
+      showMessage(`Added ${replies.length} replies to thread`, 'success')
+    } else {
+      showMessage('No replies found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand thread:', error)
+    showMessage('Failed to expand thread', 'error')
+  }
+}
+
+async function expandReactions(eventId: string) {
+  contextMenu.value.show = false
+  showMessage('Expanding reactions...', 'info')
+  
+  try {
+    const events = await fetchInitialEvents([
+      { '#e': [eventId], kinds: [7], limit: 100 }
+    ], { timeout: 5000 })
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} reactions`, 'success')
+    } else {
+      showMessage('No reactions found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand reactions:', error)
+    showMessage('Failed to expand reactions', 'error')
+  }
+}
+
+async function expandReposts(eventId: string) {
+  contextMenu.value.show = false
+  showMessage('Expanding reposts...', 'info')
+  
+  try {
+    const events = await fetchInitialEvents([
+      { '#e': [eventId], kinds: [6], limit: 50 }
+    ], { timeout: 5000 })
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} reposts`, 'success')
+    } else {
+      showMessage('No reposts found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand reposts:', error)
+    showMessage('Failed to expand reposts', 'error')
+  }
+}
+
+async function expandOriginalPost(eventId: string) {
+  contextMenu.value.show = false
+  showMessage('Finding original post...', 'info')
+  
+  try {
+    // Get the current event to find what it references
+    const currentNode = graphStore.nodes.find(n => n.id === eventId)
+    if (!currentNode?.data?.event) {
+      showMessage('Event not found in graph', 'warning')
+      return
+    }
+    
+    const event = currentNode.data.event
+    const eTag = event.tags.find((t: string[]) => t[0] === 'e')
+    
+    if (eTag && eTag[1]) {
+      const referencedId = eTag[1]
+      const events = await fetchInitialEvents([
+        { ids: [referencedId] }
+      ], { timeout: 5000 })
+      
+      if (events.length > 0) {
+        graphStore.updateWithEvents(events)
+        showMessage('Original post added', 'success')
+      } else {
+        showMessage('Original post not found', 'info')
+      }
+    } else {
+      showMessage('No referenced post found', 'warning')
+    }
+  } catch (error) {
+    console.error('Failed to find original post:', error)
+    showMessage('Failed to find original post', 'error')
+  }
+}
+
+// Filter functions
+function filterByTag(tag: string) {
+  contextMenu.value.show = false
+  showMessage(`Filtering to show only #${tag}`, 'info')
+  
+  if (!graph) return
+  
+  // Use visibility property to hide/show nodes
+  const updates: any[] = []
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    const hasTags = event?.tags?.some((t: string[]) => 
+      t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
+    )
+    
+    updates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        visibility: hasTags ? 'visible' : 'hidden'
+      }
+    })
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage(`Filtered to #${tag}`, 'success')
+}
+
+function filterByAuthor(pubkey: string) {
+  contextMenu.value.show = false
+  showMessage(`Filtering to show only ${pubkey.slice(0, 8)}...`, 'info')
+  
+  if (!graph) return
+  
+  // Use visibility property to hide/show nodes
+  const updates: any[] = []
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    updates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        visibility: event?.pubkey === pubkey ? 'visible' : 'hidden'
+      }
+    })
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage('Filtered to author', 'success')
+}
+
+function filterRelated(eventId: string) {
+  contextMenu.value.show = false
+  showMessage('Filtering to show related content...', 'info')
+  
+  if (!graph) return
+  
+  // Find all connected nodes (1 hop away)
+  const connectedIds = new Set<string>([eventId])
+  graphStore.edges.forEach((edge: any) => {
+    if (edge.source === eventId) connectedIds.add(edge.target)
+    if (edge.target === eventId) connectedIds.add(edge.source)
+  })
+  
+  // Use visibility to hide unconnected nodes
+  const updates: any[] = []
+  graphStore.nodes.forEach((node: any) => {
+    updates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        visibility: connectedIds.has(node.id) ? 'visible' : 'hidden'
+      }
+    })
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage(`Showing ${connectedIds.size} related nodes`, 'success')
+}
+
+// Highlight functions
+function highlightByTag(tag: string) {
+  contextMenu.value.show = false
+  showMessage(`Highlighting posts with #${tag}`, 'info')
+  
+  if (!graph) return
+  
+  // Add highlight style to matching nodes
+  const updates: any[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    const hasTags = event?.tags?.some((t: string[]) => 
+      t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
+    )
+    
+    if (hasTags) {
+      updates.push({
+        id: node.id,
+        style: {
+          ...node.style,
+          stroke: '#fbbf24',
+          lineWidth: 4,
+        }
+      })
+    } else {
+      // Reset to default style
+      updates.push({
+        id: node.id,
+        style: {
+          ...node.style,
+          stroke: undefined,
+          lineWidth: undefined,
+        }
+      })
+    }
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage(`Highlighted #${tag}`, 'success')
+}
+
+function highlightByAuthor(pubkey: string) {
+  contextMenu.value.show = false
+  showMessage(`Highlighting content by ${pubkey.slice(0, 8)}...`, 'info')
+  
+  if (!graph) return
+  
+  // Add highlight style to author's nodes
+  const updates: any[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    if (event?.pubkey === pubkey) {
+      updates.push({
+        id: node.id,
+        style: {
+          ...node.style,
+          stroke: '#8b5cf6',
+          lineWidth: 4,
+        }
+      })
+    } else {
+      // Reset to default style
+      updates.push({
+        id: node.id,
+        style: {
+          ...node.style,
+          stroke: undefined,
+          lineWidth: undefined,
+        }
+      })
+    }
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage('Highlighted author', 'success')
+}
+
+// Clear all filters - show all nodes
+function clearFilters() {
+  if (!graph) return
+  
+  const updates: any[] = []
+  graphStore.nodes.forEach((node: any) => {
+    updates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        visibility: 'visible'
+      }
+    })
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage('All filters cleared', 'success')
+}
+
+// Reset all highlights - remove custom styles
+function resetHighlights() {
+  if (!graph) return
+  
+  const updates: any[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    updates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        stroke: undefined,
+        lineWidth: undefined,
+      }
+    })
+  })
+  
+  if (updates.length > 0) {
+    graph.updateNodeData(updates)
+    graph.render()
+  }
+  
+  showMessage('Highlights cleared', 'success')
+}
+
+// Start investigation - focus on single event
+function startInvestigation(eventId: string) {
+  contextMenu.value.show = false
+  
+  if (!graph) return
+  
+  // Find the selected node
+  const selectedNode = graphStore.nodes.find((node: any) => node.id === eventId)
+  
+  if (!selectedNode) {
+    showMessage('Event not found in graph', 'error')
+    return
+  }
+  
+  // Get the event data to create author node and edge
+  const event = selectedNode.data?.event
+  const nodes: any[] = [selectedNode]
+  const edges: any[] = []
+  
+  // If this is an event (not a pubkey node), create the author node and edge
+  if (event && event.pubkey) {
+    // Check if we already have the author node in the original graph
+    const existingAuthorNode = graphStore.nodes.find((node: any) => node.id === event.pubkey)
+    
+    if (existingAuthorNode) {
+      nodes.push(existingAuthorNode)
+    } else {
+      // Create a simple author node
+      nodes.push({
+        id: event.pubkey,
+        label: `👤 ${event.pubkey.slice(0, 8)}...`,
+        data: {
+          type: 'pubkey',
+          pubkey: event.pubkey,
+          profile: null,
+        }
+      })
+    }
+    
+    // Create edge from event to author
+    edges.push({
+      source: event.id,
+      target: event.pubkey,
+      data: {
+        type: 'authored-by',
+      }
+    })
+  }
+  
+  // Clear the graph and keep only the selected node + author
+  graphStore.setGraphData({
+    nodes,
+    edges
+  })
+  
+  showMessage('Investigation started from this event. Use expansion options to build the graph.', 'success', 5000)
+}
+
+// Remove node from graph
+function removeNode(nodeId: string) {
+  contextMenu.value.show = false
+  
+  // Check how many nodes would remain
+  const remainingCount = graphStore.nodes.length - 1
+  
+  if (remainingCount === 0) {
+    showMessage('Cannot remove the last node from graph', 'warning')
+    return
+  }
+  
+  // Remove from graph store (also removes connected edges)
+  graphStore.removeNode(nodeId)
+  
+  showMessage('Node removed from graph', 'success')
+}
+
 // Watch for settings changes and auto-apply
 watch(layoutSettings, () => {
   applyLayoutSettings()
@@ -889,8 +1593,7 @@ onMounted(() => {
     graph.updateNodeData([updated])
     graph.render()
     
-    // Rerun layout with updated node sizes
-    applyLayoutSettings()
+    // No need to rerun layout - space is always reserved for card size
   })
   
   // Handle canvas click (deselect)
@@ -928,8 +1631,142 @@ onMounted(() => {
     graph.updateNodeData([updated])
     graph.render()
     
-    // Rerun layout with updated node sizes
-    applyLayoutSettings()
+    // No need to rerun layout - space is always reserved for card size
+  })
+  
+  // Right-click context menu (DOM event delegation)
+  graphRef.value.addEventListener('contextmenu', (e: MouseEvent) => {
+    e.preventDefault()
+    
+    const target = e.target as HTMLElement
+    
+    // Check if clicking on a pubkey node (author circle)
+    const pubkeyNodeEl = target.closest('.pubkey-node[data-item-id][data-pubkey]')
+    if (pubkeyNodeEl) {
+      const nodeId = pubkeyNodeEl.getAttribute('data-item-id')
+      const pubkey = pubkeyNodeEl.getAttribute('data-pubkey')
+      
+      if (nodeId && pubkey) {
+        showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, [
+          { label: 'Expand all posts by author', icon: 'mdi-post-outline', handler: () => expandAuthorPosts(pubkey) },
+          { label: 'Expand blog articles (kind 30023)', icon: 'mdi-book-open', handler: () => expandAuthorArticles(pubkey) },
+          { label: 'Expand author profile', icon: 'mdi-account-details', handler: () => expandAuthorProfile(pubkey) },
+          { label: 'Show followers/following', icon: 'mdi-account-group', handler: () => expandAuthorNetwork(pubkey) },
+          { label: 'Filter to show only this author', icon: 'mdi-filter', handler: () => filterByAuthor(pubkey) },
+          { label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) },
+        ])
+        return
+      }
+    }
+    
+    // Check if clicking on a tag
+    const tagEl = target.closest('[data-tag]')
+    if (tagEl) {
+      const tag = tagEl.getAttribute('data-tag')
+      if (tag) {
+        // Get the node ID from the card
+        const cardEl = tagEl.closest('[data-item-id]')
+        const nodeId = cardEl?.getAttribute('data-item-id')
+        
+        const actions = [
+          { label: 'Expand posts with this tag', icon: 'mdi-tag-plus', handler: () => expandByTag(tag) },
+          { label: 'Filter to show only this tag', icon: 'mdi-filter', handler: () => filterByTag(tag) },
+          { label: 'Highlight posts with this tag', icon: 'mdi-marker', handler: () => highlightByTag(tag) },
+        ]
+        
+        if (nodeId) {
+          actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) })
+        }
+        
+        showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, actions)
+        return
+      }
+    }
+    
+    // Check if clicking on a mention
+    const mentionEl = target.closest('[data-mention]')
+    if (mentionEl) {
+      const pubkey = mentionEl.getAttribute('data-mention')
+      if (pubkey) {
+        // Get the node ID from the card
+        const cardEl = mentionEl.closest('[data-item-id]')
+        const nodeId = cardEl?.getAttribute('data-item-id')
+        
+        const actions = [
+          { label: 'Expand user posts', icon: 'mdi-post', handler: () => expandAuthorPosts(pubkey) },
+          { label: 'Expand user profile', icon: 'mdi-account', handler: () => expandAuthorProfile(pubkey) },
+          { label: 'Filter to show only this user', icon: 'mdi-filter', handler: () => filterByAuthor(pubkey) },
+          { label: 'Highlight user content', icon: 'mdi-marker', handler: () => highlightByAuthor(pubkey) },
+        ]
+        
+        if (nodeId) {
+          actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) })
+        }
+        
+        showContextMenu(e.clientX, e.clientY, `User ${pubkey.slice(0, 8)}...`, actions)
+        return
+      }
+    }
+    
+    // Check if clicking on author section
+    const authorEl = target.closest('[data-author-pubkey]')
+    if (authorEl) {
+      const pubkey = authorEl.getAttribute('data-author-pubkey')
+      if (pubkey) {
+        // Get the node ID from the card
+        const cardEl = authorEl.closest('[data-item-id]')
+        const nodeId = cardEl?.getAttribute('data-item-id')
+        
+        const actions = [
+          { label: 'Expand all posts by author', icon: 'mdi-post-outline', handler: () => expandAuthorPosts(pubkey) },
+          { label: 'Expand blog articles (kind 30023)', icon: 'mdi-book-open', handler: () => expandAuthorArticles(pubkey) },
+          { label: 'Expand author profile', icon: 'mdi-account-details', handler: () => expandAuthorProfile(pubkey) },
+          { label: 'Show followers/following', icon: 'mdi-account-group', handler: () => expandAuthorNetwork(pubkey) },
+          { label: 'Filter to show only this author', icon: 'mdi-filter', handler: () => filterByAuthor(pubkey) },
+        ]
+        
+        if (nodeId) {
+          actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) })
+        }
+        
+        showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, actions)
+        return
+      }
+    }
+    
+    // Check if clicking on a card (general note context menu)
+    const cardEl = target.closest('[data-item-id][data-kind][data-author]')
+    if (cardEl) {
+      const kind = cardEl.getAttribute('data-kind')
+      const author = cardEl.getAttribute('data-author')
+      const itemId = cardEl.getAttribute('data-item-id')
+      
+      if (kind && author && itemId) {
+        const kindNum = parseInt(kind)
+        let title = 'Note Options'
+        const actions: Array<{ label: string, icon: string, handler: () => void }> = []
+        
+        // Add kind-specific options
+        if (kindNum === 6) { // Repost
+          actions.push({ label: 'Show original post', icon: 'mdi-bookmark', handler: () => expandOriginalPost(itemId) })
+        }
+        
+        if (kindNum === 1 || kindNum === 30023) { // Note or Article
+          actions.push({ label: 'Show thread/replies', icon: 'mdi-comment-multiple', handler: () => expandThread(itemId) })
+          actions.push({ label: 'Show reactions', icon: 'mdi-heart', handler: () => expandReactions(itemId) })
+          actions.push({ label: 'Show reposts', icon: 'mdi-repeat', handler: () => expandReposts(itemId) })
+        }
+        
+        // Always add author expand option
+        actions.push({ label: 'Start investigation from here', icon: 'mdi-target', handler: () => startInvestigation(itemId) })
+        actions.push({ label: 'Expand author profile', icon: 'mdi-account', handler: () => expandAuthorProfile(author) })
+        actions.push({ label: 'Filter to show related', icon: 'mdi-filter', handler: () => filterRelated(itemId) })
+        actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(itemId) })
+        
+        showContextMenu(e.clientX, e.clientY, title, actions)
+        return
+      }
+    }
   })
   
   // Handle window resize
@@ -1350,4 +2187,305 @@ async function handleExpand(eventId: string) {
 .v-theme--dark :deep(.profile-bio) {
   color: #aaa;
 }
+
+/* New minimalistic card design */
+:deep(.nostr-card) {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 0;
+  width: 100%;
+  max-width: 600px;
+  min-width: 400px;
+  box-sizing: border-box;
+  font-family: system-ui, -apple-system, sans-serif;
+  transition: box-shadow 0.2s;
+}
+
+:deep(.nostr-card:hover) {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* Card Header */
+:deep(.card-header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+:deep(.card-header-left) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:deep(.kind-badge) {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+:deep(.thread-indicator) {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+:deep(.card-close) {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+:deep(.card-close:hover) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* Author Section */
+:deep(.card-author) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+:deep(.card-author:hover) {
+  background: #f9fafb;
+}
+
+:deep(.author-avatar) {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  color: white;
+}
+
+:deep(.author-info) {
+  flex: 1;
+  min-width: 0;
+}
+
+:deep(.author-name) {
+  font-weight: 600;
+  font-size: 14px;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:deep(.card-timestamp) {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+/* Content Section */
+:deep(.card-content) {
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #374151;
+  max-height: 400px;
+  overflow-y: auto;
+  word-wrap: break-word;
+}
+
+:deep(.markdown-content) {
+  white-space: pre-wrap;
+}
+
+:deep(.markdown-content p) {
+  margin: 0 0 12px 0;
+}
+
+:deep(.markdown-content p:last-child) {
+  margin-bottom: 0;
+}
+
+:deep(.markdown-content a) {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+:deep(.markdown-content a:hover) {
+  text-decoration: underline;
+}
+
+:deep(.markdown-content pre) {
+  background: #f3f4f6;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+/* Tags Section */
+:deep(.card-tags) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+:deep(.tag-badge) {
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+:deep(.tag-badge:hover) {
+  background: #dbeafe;
+  transform: translateY(-1px);
+}
+
+/* Mentions Section */
+:deep(.card-mentions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 12px;
+}
+
+:deep(.mentions-label) {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+:deep(.mention-badge) {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+:deep(.mention-badge:hover) {
+  background: #e5e7eb;
+  transform: translateY(-1px);
+}
+
+:deep(.mention-more) {
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Footer Section */
+:deep(.card-footer) {
+  display: flex;
+  gap: 16px;
+  padding: 8px 12px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+:deep(.footer-stat) {
+  font-size: 12px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+:deep(.footer-stat:hover) {
+  color: #111827;
+}
+
+/* Dark theme support for new cards */
+.v-theme--dark :deep(.nostr-card) {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.v-theme--dark :deep(.card-header),
+.v-theme--dark :deep(.card-tags),
+.v-theme--dark :deep(.card-mentions),
+.v-theme--dark :deep(.card-footer) {
+  border-color: #374151;
+}
+
+.v-theme--dark :deep(.card-author:hover) {
+  background: #111827;
+}
+
+.v-theme--dark :deep(.card-close) {
+  color: #9ca3af;
+}
+
+.v-theme--dark :deep(.card-close:hover) {
+  background: #374151;
+  color: #f3f4f6;
+}
+
+.v-theme--dark :deep(.author-name),
+.v-theme--dark :deep(.card-content) {
+  color: #f3f4f6;
+}
+
+.v-theme--dark :deep(.card-timestamp),
+.v-theme--dark :deep(.footer-stat),
+.v-theme--dark :deep(.mentions-label) {
+  color: #9ca3af;
+}
+
+.v-theme--dark :deep(.tag-badge) {
+  background: #1e3a8a;
+  color: #93c5fd;
+}
+
+.v-theme--dark :deep(.tag-badge:hover) {
+  background: #1e40af;
+}
+
+.v-theme--dark :deep(.mention-badge) {
+  background: #374151;
+  color: #e5e7eb;
+}
+
+.v-theme--dark :deep(.mention-badge:hover) {
+  background: #4b5563;
+}
+
+.v-theme--dark :deep(.markdown-content pre) {
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.v-theme--dark :deep(.card-footer) {
+  background: #111827;
+}
 </style>
+
