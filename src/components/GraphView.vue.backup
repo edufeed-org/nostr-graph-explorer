@@ -1,0 +1,361 @@
+<template>
+  <v-container fluid class="graph-container pa-0">
+    <div ref="graphRef" class="graph-canvas"></div>
+    
+    <!-- Floating controls -->
+    <div class="graph-controls">
+      <v-card class="pa-2">
+        <v-btn-toggle v-model="layoutMode" mandatory density="compact">
+          <v-btn value="force" icon="mdi-graph-outline" size="small"></v-btn>
+          <v-btn value="tree" icon="mdi-file-tree" size="small"></v-btn>
+          <v-btn value="circular" icon="mdi-circle-outline" size="small"></v-btn>
+        </v-btn-toggle>
+        
+        <v-divider class="my-2"></v-divider>
+        
+        <v-btn icon="mdi-fit-to-screen" size="small" @click="fitView"></v-btn>
+        <v-btn icon="mdi-refresh" size="small" @click="refreshGraph"></v-btn>
+      </v-card>
+    </div>
+
+    <!-- Data controls -->
+    <div class="data-controls">
+      <v-card class="pa-2">
+        <div class="d-flex flex-column ga-2">
+          <v-btn
+            size="small"
+            color="primary"
+            prepend-icon="mdi-download"
+            :loading="isFetching"
+            @click="fetchGlobal"
+          >
+            Fetch Global
+          </v-btn>
+          
+          <v-btn
+            size="small"
+            prepend-icon="mdi-database"
+            @click="loadFromDb"
+          >
+            Load from DB
+          </v-btn>
+          
+          <v-btn
+            size="small"
+            prepend-icon="mdi-delete"
+            @click="clearAll"
+          >
+            Clear
+          </v-btn>
+        </div>
+      </v-card>
+    </div>
+    
+    <!-- Status bar -->
+    <div class="status-bar">
+      <v-chip size="small" variant="flat">
+        <v-icon start>mdi-chart-bubble</v-icon>
+        {{ nodeCount }} nodes
+      </v-chip>
+      <v-chip size="small" variant="flat" class="ml-2">
+        <v-icon start>mdi-connection</v-icon>
+        {{ edgeCount }} edges
+      </v-chip>
+      <v-chip v-if="isFetching" size="small" variant="flat" color="primary" class="ml-2">
+        <v-icon start>mdi-loading mdi-spin</v-icon>
+        Fetching...
+      </v-chip>
+    </div>
+
+    <!-- Event Details Panel -->
+    <EventDetails
+      :event="selectedEvent"
+      @close="closeEventDetails"
+      @annotate="handleAnnotate"
+      @expand="handleExpand"
+    />
+  </v-container>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { Graph } from '@antv/g6';
+import type { Event as NostrEvent } from 'nostr-tools';
+import { useGraphStore } from '@/stores/graph';
+import { useEventFetcher } from '@/composables/useEventFetcher';
+import { getEvent } from '@/db';
+import EventDetails from './EventDetails.vue';
+import { storeToRefs } from 'pinia';
+
+const graphRef = ref<HTMLElement>();
+let graph: Graph | null = null;
+
+const layoutMode = ref('force');
+const graphStore = useGraphStore();
+const { nodeCount, edgeCount, graphData } = storeToRefs(graphStore);
+
+const { fetchGlobalFeed, isFetching } = useEventFetcher();
+const selectedEvent = ref<NostrEvent | null>(null);
+
+onMounted(() => {
+  if (!graphRef.value) return;
+  
+  // Initialize G6 graph
+  graph = new Graph({
+    container: graphRef.value,
+    width: graphRef.value.offsetWidth,
+    height: graphRef.value.offsetHeight,
+    
+    layout: {
+      type: layoutMode.value,
+      preventOverlap: true,
+      nodeSpacing: 50,
+    },
+    
+    modes: {
+      default: [
+        'drag-canvas',
+        'zoom-canvas',
+        'drag-node',
+        'click-select',
+      ],
+    },
+    
+    node: {
+      style: {
+        size: 30,
+        fill: '#1976d2',
+        stroke: '#ffffff',
+        lineWidth: 2,
+        labelText: (d: any) => d.label || d.id,
+        labelFill: '#333',
+        labelFontSize: 12,
+      },
+      state: {
+        selected: {
+          fill: '#ff6b35',
+          stroke: '#ffffff',
+          lineWidth: 3,
+        },
+        active: {
+          fill: '#4fc3f7',
+          stroke: '#ffffff',
+          lineWidth: 2,
+        },
+      },
+    },
+    
+    edge: {
+      style: {
+        stroke: '#999',
+        lineWidth: 1,
+        endArrow: true,
+      },
+    },
+  });
+  
+  // Load initial data
+  graph.read(graphData.value);
+  
+  // Handle node click events
+  graph.on('node:click', async (evt) => {
+    const target = evt.target as any;
+    const nodeId = target.id as string;
+    
+    if (!nodeId) return;
+    
+    // Clear previous selection
+    const nodes = graph.getAllNodeData();
+    nodes.forEach((node: any) => {
+      graph.setElementState(node.id, 'selected', false);
+    });
+    
+    // Set new selection
+    graph.setElementState(nodeId, 'selected', true);
+    graphStore.selectNode(nodeId);
+    
+    // Load event details from database
+    const event = await getEvent(nodeId);
+    if (event) {
+      selectedEvent.value = event;
+    }
+  });
+  
+  // Handle canvas click (deselect)
+  graph.on('canvas:click', () => {
+    if (graph) {
+      const nodes = graph.getAllNodeData();
+      nodes.forEach((node: any) => {
+        graph.setElementState(node.id, 'selected', false);
+      });
+    }
+    graphStore.selectNode(null);
+    selectedEvent.value = null;
+  });
+  
+  // Handle window resize
+  window.addEventListener('resize', handleResize);
+  
+  // Try loading from database first
+  loadFromDb();
+});
+
+onUnmounted(() => {
+  if (graph) {
+    graph.destroy();
+  }
+  window.removeEventListener('resize', handleResize);
+});
+
+// Watch for layout changes
+watch(layoutMode, (newLayout) => {
+  if (graph) {
+    graph.updateLayout({
+      type: newLayout,
+      preventOverlap: true,
+      nodeSpacing: 50,
+    });
+    graph.layout();
+  }
+});
+
+// Watch for data changes
+watch(graphData, (newData) => {
+  if (grapread
+    graph.changeData(newData);
+  }
+}, { deep: true });
+
+function handleResize() {
+  if (graph && graphRef.value) {
+    graph.setSize([
+      graphRef.value.offsetWidth,
+      graphRef.value.offsetHeight
+    ]);
+  }
+}
+
+function fitView() {
+  if (graph) {
+    graph.fitView();
+  }
+}
+
+function refreshGraph() {
+  if (graph) {
+    graph.layout();
+  }
+}
+
+// Fetch global feed from Nostr relays
+async function fetchGlobal() {
+  try {
+    await fetchGlobalFeed(50)
+    // After fetching, reload from database to show new events
+    await loadFromDb()
+    fitView()
+  selectedEvent.value = null
+}
+
+// Close event details panel
+function closeEventDetails() {
+  if (graph) {
+    const nodes = graph.getAllNodeData();
+    nodes.forEach((node: any) => {
+      graph.setElementState(node.id, 'selected', false);
+    });
+  }
+  selectedEvent.value = null
+  graphStore.selectNode(null)
+}
+
+// Handle annotation request
+function handleAnnotate() {
+  // TODO: Open annotation dialog
+  console.log('Annotate event:', selectedEvent.value?.id)
+}
+
+// Handle expand request
+async function handleExpand() {
+  if (!selectedEvent.value) return
+  
+  try {
+    await graphStore.expandNode(selectedEvent.value.id)
+    fitView()
+  } catch (error) {
+    console.error('Failed to expand node:', error)
+  }
+}
+
+// Handle annotation request
+function handleAnnotate() {
+  // TODO: Open annotation dialog
+  console.log('Annotate event:', selectedEvent.value?.id)
+}
+
+// Handle expand request
+async function handleExpand() {
+  if (!selectedEvent.value) return
+  
+  try {
+    await graphStore.expandNode(selectedEvent.value.id)
+    fitView()
+  } catch (error) {
+    console.error('Failed to expand node:', error)
+  }
+  } catch (error) {
+    console.error('Failed to fetch global feed:', error)
+  }
+}
+
+// Load graph from IndexedDB
+async function loadFromDb() {
+  try {
+    await graphStore.loadFromDatabase()
+    fitView()
+  } catch (error) {
+    console.error('Failed to load from database:', error)
+  }
+}
+
+// Clear all graph data
+function clearAll() {
+  graphStore.clearGraph()
+}
+</script>
+
+<style scoped>
+.graph-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.graph-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+}
+
+.data-controls {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+}
+
+.status-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+}
+</style>

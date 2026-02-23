@@ -1,0 +1,6 @@
+// Vuetify SCSS variables
+// You can override Vuetify variables here
+
+@use 'vuetify' with (
+  $color-pack: false
+);
