@@ -1,5 +1,5 @@
 import { type Event as NostrEvent } from 'nostr-tools'
-import type { GraphNode, GraphEdge } from '@/stores/graph'
+import type { GraphNode, GraphEdge } from '../stores/graph'
 import { npubEncode } from 'nostr-tools/nip19'
 
 /**

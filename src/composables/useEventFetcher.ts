@@ -6,7 +6,7 @@ import {
   storeEvents,
   getEventsByPubkey,
   getEventReferences,
-} from '@/db'
+} from '../db'
 
 export interface FetchProgress {
   total: number

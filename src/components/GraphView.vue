@@ -436,10 +436,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Graph } from '@antv/g6'
-import { useGraphStore } from '@/stores/graph'
-import { useEventFetcher } from '@/composables/useEventFetcher'
-import { useRelayManager } from '@/composables/useRelayManager'
-import { useNostr } from '@/composables/useNostr'
+import { useGraphStore } from '../stores/graph'
+import { useEventFetcher } from '../composables/useEventFetcher'
+import { useRelayManager } from '../composables/useRelayManager'
+import { useNostr } from '../composables/useNostr'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
 

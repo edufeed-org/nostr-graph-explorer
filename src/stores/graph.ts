@@ -1,11 +1,11 @@
 import { defineStore } from 'pinia'
 import type { GraphData } from '@antv/g6'
 import type { Event as NostrEvent } from 'nostr-tools'
-import { getAllEvents, getEventReferences, getEventsByKind } from '@/db'
+import { getAllEvents, getEventReferences, getEventsByKind } from '../db'
 import {
   eventsToGraph,
   filterEvents as filterEventsUtil,
-} from '@/composables/useGraphProjection'
+} from '../composables/useGraphProjection'
 
 export interface GraphNode {
   id: string
