@@ -156,9 +156,28 @@
         </div>
         
         <div v-else-if="layoutMode === 'force'" class="mb-2">
+          <div class="text-caption text-medium-emphasis mb-1">Center Position</div>
+          <v-slider v-model="layoutSettings.force.centerX" :min="-500" :max="500" label="Center X" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.force.centerY" :min="-500" :max="500" label="Center Y" thumb-label density="compact" hide-details class="mb-2"></v-slider>
+          
+          <div class="text-caption text-medium-emphasis mb-1">Link/Edge Properties</div>
+          <v-slider v-model="layoutSettings.force.linkDistance" :min="10" :max="500" label="Link Distance" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.force.edgeStrength" :min="0" :max="2" :step="0.1" label="Edge Strength" thumb-label density="compact" hide-details class="mb-2"></v-slider>
+          
+          <div class="text-caption text-medium-emphasis mb-1">Node Properties</div>
+          <v-slider v-model="layoutSettings.force.nodeStrength" :min="-100" :max="100" label="Node Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.force.nodeSize" :min="20" :max="100" label="Node Size" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.force.nodeSpacing" :min="10" :max="100" label="Node Spacing" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-switch v-model="layoutSettings.force.preventOverlap" label="Prevent Overlap" color="primary" density="compact" hide-details></v-switch>
+          <v-switch v-model="layoutSettings.force.preventOverlap" label="Prevent Overlap" color="primary" density="compact" hide-details class="mb-2"></v-switch>
+          
+          <div class="text-caption text-medium-emphasis mb-1">Clustering</div>
+          <v-switch v-model="layoutSettings.force.clustering" label="Enable Clustering" color="primary" density="compact" hide-details class="mb-1"></v-switch>
+          <v-slider v-model="layoutSettings.force.clusterNodeStrength" :min="-50" :max="100" label="Cluster Node Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.force.clustering" class="mb-2"></v-slider>
+          
+          <div class="text-caption text-medium-emphasis mb-1">Iteration Control</div>
+          <v-slider v-model="layoutSettings.force.alpha" :min="0" :max="1" :step="0.05" label="Alpha (Energy)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.force.alphaDecay" :min="0" :max="0.1" :step="0.001" label="Alpha Decay" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.force.alphaMin" :min="0" :max="0.1" :step="0.001" label="Min Alpha" thumb-label density="compact" hide-details></v-slider>
         </div>
         
         <div v-else-if="layoutMode === 'circular'" class="mb-2">
@@ -537,9 +556,24 @@ const layoutSettings = ref({
     velocityDecay: 0.3,  // Decreased from 0.4 for faster movement
   },
   force: {
+    // Center position
+    centerX: 0,
+    centerY: 0,
+    // Link/Edge properties
+    linkDistance: 150,
+    edgeStrength: 0.6,
+    // Node properties
+    nodeStrength: 30,
     nodeSize: 60,
     nodeSpacing: 20,
     preventOverlap: true,
+    // Clustering
+    clustering: false,
+    clusterNodeStrength: 20,
+    // Iteration control
+    alpha: 0.3,
+    alphaDecay: 0.028,
+    alphaMin: 0.001,
   },
   circular: {
     radius: 600,
@@ -1106,9 +1140,18 @@ function getLayoutConfig(type: string) {
     case 'force':
       return {
         type: 'force',
+        center: [settings.force.centerX, settings.force.centerY],
+        linkDistance: settings.force.linkDistance,
+        edgeStrength: settings.force.edgeStrength,
+        nodeStrength: settings.force.nodeStrength,
         preventOverlap: settings.force.preventOverlap,
         nodeSize: getNodeSize,
         nodeSpacing: settings.force.nodeSpacing,
+        clustering: settings.force.clustering,
+        clusterNodeStrength: settings.force.clusterNodeStrength,
+        alpha: settings.force.alpha,
+        alphaDecay: settings.force.alphaDecay,
+        alphaMin: settings.force.alphaMin,
       }
       
     case 'd3-force':
