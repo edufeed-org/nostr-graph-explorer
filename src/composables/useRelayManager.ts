@@ -144,8 +144,11 @@ export function useRelayManager() {
     stats.value = {
       total: relays.value.length,
       enabled: relays.value.filter((r) => r.enabled).length,
-      connected: relays.value.filter((r) => r.status === 'connected').length,
-      errors: relays.value.filter((r) => r.status === 'error').length,
+      connected: relays.value.filter(
+        (r) => r.enabled && r.status === 'connected',
+      ).length,
+      errors: relays.value.filter((r) => r.enabled && r.status === 'error')
+        .length,
     }
   }
 

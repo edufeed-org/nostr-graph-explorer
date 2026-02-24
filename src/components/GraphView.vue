@@ -392,14 +392,14 @@
                   :icon="relay.enabled ? 'mdi-pause' : 'mdi-play'"
                   :color="relay.enabled ? 'warning' : 'success'"
                   variant="tonal"
-                  @click="relayManager.toggleRelay(relay.url)"
+                  @click="handleToggleRelay(relay.url)"
                 ></v-btn>
                 <v-btn
                   size="small"
                   icon="mdi-delete"
                   color="error"
                   variant="tonal"
-                  @click="relayManager.removeRelay(relay.url)"
+                  @click="handleRemoveRelay(relay.url)"
                 ></v-btn>
               </div>
             </div>
@@ -633,7 +633,7 @@ const layoutOptions = computed(() => {
 })
 
 const { fetchGlobalFeed, fetchInitialEvents, fetchByAuthor, expandAroundEvent, fetchUserGraph, isFetching } = useEventFetcher()
-const { testAllRelayConnections } = useNostr()
+const { testAllRelayConnections, loadRelaysFromDB } = useNostr()
 
 const snackbar = ref({
   show: false,
@@ -2513,11 +2513,32 @@ function clearAll() {
 async function handleAddRelay() {
   if (!newRelayUrl.value.trim()) return
   
-  const success = await relayManager.addRelay(newRelayUrl.value.trim())
+  const url = newRelayUrl.value.trim()
+  console.log(`[GraphView] Adding relay: ${url}`)
+  
+  const success = await relayManager.addRelay(url)
   if (success) {
+    console.log(`[GraphView] Relay added to database, reloading relay list...`)
     newRelayUrl.value = ''
-    showMessage('Relay added successfully', 'success')
+    
+    // Reload relay list in useNostr so it includes the new relay
+    await loadRelaysFromDB()
+    
+    // Reload relay manager view  
+    await relayManager.loadRelays()
     relayManager.updateStats()
+    
+    // Test the connection for the new relay
+    console.log(`[GraphView] Testing connections for updated relay list...`)
+    await testAllRelayConnections()
+    
+    // Reload relay manager view again to show test results
+    await relayManager.loadRelays()
+    relayManager.updateStats()
+    
+    showMessage('Relay added successfully', 'success')
+  } else {
+    console.error(`[GraphView] Failed to add relay: ${url}`)
   }
 }
 
@@ -2525,6 +2546,8 @@ async function handleAddRelay() {
 async function handleTestConnections() {
   testingConnections.value = true
   try {
+    // Reload relay list first to ensure we have latest from database
+    await loadRelaysFromDB()
     await testAllRelayConnections()
     await relayManager.loadRelays()
     relayManager.updateStats()
@@ -2534,6 +2557,53 @@ async function handleTestConnections() {
     showMessage('Failed to test connections', 'error')
   } finally {
     testingConnections.value = false
+  }
+}
+
+// Handle toggling relay enabled/disabled
+async function handleToggleRelay(url: string) {
+  try {
+    console.log(`[GraphView] Toggling relay: ${url}`)
+    await relayManager.toggleRelay(url)
+    
+    // Reload relay list in useNostr to reflect the change
+    await loadRelaysFromDB()
+    
+    // Reload relay manager view
+    await relayManager.loadRelays()
+    relayManager.updateStats()
+    
+    // Test connections for updated relay list
+    console.log(`[GraphView] Testing connections after toggle...`)
+    await testAllRelayConnections()
+    
+    // Reload relay manager view again to show test results
+    await relayManager.loadRelays()
+    relayManager.updateStats()
+  } catch (error) {
+    console.error('Failed to toggle relay:', error)
+    showMessage('Failed to toggle relay', 'error')
+  }
+}
+
+// Handle removing a relay
+async function handleRemoveRelay(url: string) {
+  try {
+    console.log(`[GraphView] Removing relay: ${url}`)
+    await relayManager.removeRelay(url)
+    
+    console.log(`[GraphView] Relay removed, reloading relay list...`)
+    // Reload relay list in useNostr to remove the relay
+    await loadRelaysFromDB()
+    
+    // Reload relay manager view
+    await relayManager.loadRelays()
+    relayManager.updateStats()
+    
+    showMessage('Relay removed', 'info')
+  } catch (error) {
+    console.error('Failed to remove relay:', error)
+    showMessage('Failed to remove relay', 'error')
   }
 }
 

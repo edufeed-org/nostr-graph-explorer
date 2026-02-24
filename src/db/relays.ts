@@ -8,7 +8,13 @@ export type RelayInfo = NostrGraphDB['relays']['value']
  */
 export async function getAllRelays(): Promise<RelayInfo[]> {
   const db = await getDB()
-  return db.getAll('relays')
+  const allRelays = await db.getAll('relays')
+  console.log('[relays.ts] getAllRelays - Total in database:', allRelays.length)
+  console.log(
+    '[relays.ts] All relays:',
+    allRelays.map((r) => `${r.url} (enabled: ${r.enabled})`),
+  )
+  return allRelays
 }
 
 /**
@@ -16,8 +22,22 @@ export async function getAllRelays(): Promise<RelayInfo[]> {
  */
 export async function getEnabledRelays(): Promise<RelayInfo[]> {
   const db = await getDB()
-  const allRelays = await db.getAllFromIndex('relays', 'by-enabled', true)
-  return allRelays
+
+  // Get all relays and manually filter - more reliable than index query with boolean values
+  const allFromDb = await db.getAll('relays')
+  const enabledRelays = allFromDb.filter((r) => r.enabled === true)
+
+  console.log('[relays.ts] getEnabledRelays - Total relays:', allFromDb.length)
+  console.log(
+    '[relays.ts] getEnabledRelays - Enabled relays:',
+    enabledRelays.length,
+  )
+  console.log(
+    '[relays.ts] Enabled relay URLs:',
+    enabledRelays.map((r) => `${r.url} (enabled: ${r.enabled})`),
+  )
+
+  return enabledRelays
 }
 
 /**
@@ -60,8 +80,10 @@ export async function addRelay(url: string): Promise<RelayInfo> {
  * Remove a relay
  */
 export async function removeRelay(url: string): Promise<void> {
+  console.log(`[relays.ts] Removing relay: ${url}`)
   const db = await getDB()
   await db.delete('relays', url)
+  console.log(`[relays.ts] Relay removed from database: ${url}`)
 }
 
 /**
@@ -121,8 +143,20 @@ export async function toggleRelayEnabled(url: string): Promise<void> {
   const relay = await getRelay(url)
   if (!relay) return
 
+  console.log(
+    `[relays.ts] Toggling relay ${url} from ${relay.enabled} to ${!relay.enabled}`,
+  )
   relay.enabled = !relay.enabled
+
+  // When disabling a relay, mark it as disconnected
+  // When enabling, also mark as disconnected (will be updated on next connection test)
+  relay.status = 'disconnected'
+  relay.lastError = null
+
   await saveRelay(relay)
+  console.log(
+    `[relays.ts] Relay ${url} now enabled: ${relay.enabled}, status: ${relay.status}`,
+  )
 }
 
 /**

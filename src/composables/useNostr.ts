@@ -15,33 +15,67 @@ import {
 // Shared pool instance across all composable instances
 let poolInstance: SimplePool | null = null
 
+// Shared relay list across all composable instances
+const relays = ref<string[]>([])
+let relaysLoaded = false
+
 // Track relay response times for connection status
 const relayResponseTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const CONNECTION_TIMEOUT = 5000 // 5 seconds
 
 export function useNostr() {
   const connected = ref(false)
-  const relays = ref<string[]>([])
   const subscriptions = new Map<string, () => void>()
 
-  // Load relays from database on mount
+  // Load relays from database on mount (only once)
   onMounted(async () => {
-    await loadRelaysFromDB()
-    // Test relay connections in background
-    testAllRelayConnections().catch(console.error)
+    if (!relaysLoaded) {
+      await loadRelaysFromDB()
+      relaysLoaded = true
+      // Test relay connections in background
+      testAllRelayConnections().catch(console.error)
+    }
   })
 
   // Load enabled relays from database
   async function loadRelaysFromDB() {
+    console.log('[useNostr] loadRelaysFromDB called')
     try {
       // Initialize defaults if needed
       await initializeDefaultRelays()
 
       // Load enabled relays
       const enabledRelays = await getEnabledRelays()
-      relays.value = enabledRelays.map((r) => r.url)
+      const newRelayUrls = enabledRelays.map((r) => r.url)
 
-      console.log(`Loaded ${relays.value.length} enabled relays from database`)
+      // Check if relay list has changed
+      const relaysChanged =
+        relays.value.length !== newRelayUrls.length ||
+        !relays.value.every((url) => newRelayUrls.includes(url))
+
+      if (relaysChanged && poolInstance) {
+        // Find relays that were removed or disabled
+        const removedRelays = relays.value.filter(
+          (url) => !newRelayUrls.includes(url),
+        )
+
+        if (removedRelays.length > 0) {
+          console.log(
+            '[useNostr] Closing connections to disabled/removed relays:',
+            removedRelays,
+          )
+          // Close connections to relays that are no longer enabled
+          poolInstance.close(removedRelays)
+        }
+      }
+
+      relays.value = newRelayUrls
+
+      console.log(
+        `[useNostr] Loaded ${relays.value.length} enabled relays:`,
+        relays.value,
+      )
+      console.log('[useNostr] Full relay details:', enabledRelays)
 
       // Initialize all relays as disconnected
       for (const url of relays.value) {
@@ -97,60 +131,94 @@ export function useNostr() {
    * Test individual relay connection to detect WebSocket errors
    */
   async function testRelayConnection(url: string): Promise<boolean> {
+    console.log(`[useNostr] Testing connection to ${url}...`)
+
     try {
       const relay = new Relay(url)
+      let resolved = false
 
       return new Promise<boolean>((resolve) => {
         const timeout = setTimeout(() => {
-          relay.close()
-          updateRelayStatus(url, 'error', 'Connection timeout').catch(
-            console.error,
-          )
-          resolve(false)
+          if (!resolved) {
+            resolved = true
+            relay.close()
+            console.log(`[useNostr] ${url} - Connection timeout`)
+            updateRelayStatus(url, 'error', 'Connection timeout').catch(
+              console.error,
+            )
+            resolve(false)
+          }
         }, CONNECTION_TIMEOUT)
 
         // Attempt to connect
         relay
           .connect()
           .then(() => {
+            console.log(`[useNostr] ${url} - Connected successfully`)
             clearTimeout(timeout)
-            // Successfully connected, test with a simple subscription
-            const sub = relay.subscribe([{ kinds: [1], limit: 1 }], {
-              onevent: () => {
-                // Got an event
-                sub.close()
-                relay.close()
-                markRelayConnected(url).catch(console.error)
-                resolve(true)
-              },
-              oneose: () => {
-                // End of stored events - relay is working even if no events
-                sub.close()
-                relay.close()
-                markRelayConnected(url).catch(console.error)
-                resolve(true)
-              },
-            })
 
-            // Set a timeout for the subscription
-            setTimeout(() => {
-              sub.close()
-              relay.close()
-              markRelayConnected(url).catch(console.error)
-              resolve(true)
-            }, 2000)
+            if (!resolved) {
+              // Successfully connected, test with a simple subscription
+              const sub = relay.subscribe([{ kinds: [1], limit: 1 }], {
+                onevent: () => {
+                  if (!resolved) {
+                    resolved = true
+                    // Got an event
+                    sub.close()
+                    relay.close()
+                    console.log(
+                      `[useNostr] ${url} - Received event, marking as connected`,
+                    )
+                    markRelayConnected(url).catch(console.error)
+                    resolve(true)
+                  }
+                },
+                oneose: () => {
+                  if (!resolved) {
+                    resolved = true
+                    // End of stored events - relay is working even if no events
+                    sub.close()
+                    relay.close()
+                    console.log(
+                      `[useNostr] ${url} - Got EOSE, marking as connected`,
+                    )
+                    markRelayConnected(url).catch(console.error)
+                    resolve(true)
+                  }
+                },
+              })
+
+              // Set a timeout for the subscription
+              setTimeout(() => {
+                if (!resolved) {
+                  resolved = true
+                  sub.close()
+                  relay.close()
+                  console.log(
+                    `[useNostr] ${url} - Subscription timeout, marking as connected`,
+                  )
+                  markRelayConnected(url).catch(console.error)
+                  resolve(true)
+                }
+              }, 2000)
+            }
           })
           .catch((error: Error) => {
             clearTimeout(timeout)
-            relay.close()
-            const errorMsg = error.message || 'Connection failed'
-            updateRelayStatus(url, 'error', errorMsg).catch(console.error)
-            resolve(false)
+            if (!resolved) {
+              resolved = true
+              relay.close()
+              const errorMsg = error.message || 'Connection failed'
+              console.error(`[useNostr] ${url} - Connection error:`, errorMsg)
+              updateRelayStatus(url, 'error', errorMsg).catch(console.error)
+              resolve(false)
+            }
           })
       })
     } catch (error) {
       const errorMsg =
         error instanceof Error ? error.message : 'Connection failed'
+      console.error(`[useNostr] ${url} - Exception:`, errorMsg)
       await updateRelayStatus(url, 'error', errorMsg)
       return false
     }
@@ -160,8 +228,18 @@ export function useNostr() {
    * Test all relay connections
    */
   async function testAllRelayConnections(): Promise<void> {
+    console.log(
+      `[useNostr] Testing ${relays.value.length} relay connections...`,
+    )
     const promises = relays.value.map((url) => testRelayConnection(url))
-    await Promise.allSettled(promises)
+    const results = await Promise.allSettled(promises)
+
+    const successful = results.filter(
+      (r) => r.status === 'fulfilled' && r.value,
+    ).length
+    console.log(
+      `[useNostr] Connection test complete: ${successful}/${relays.value.length} successful`,
+    )
   }
 
   // Get or create pool
@@ -338,11 +416,19 @@ export function useNostr() {
   }
 
   /**
-   * Close all subscriptions
+   * Close all subscriptions and pool connections
    */
   function closeAll() {
+    console.log('[useNostr] Closing all subscriptions and connections')
     subscriptions.forEach((cleanup) => cleanup())
     subscriptions.clear()
+
+    // Close pool connections to all relays
+    if (poolInstance && relays.value.length > 0) {
+      poolInstance.close(relays.value)
+      console.log('[useNostr] Pool connections closed')
+    }
+
     connected.value = false
   }
 
