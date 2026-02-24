@@ -120,22 +120,38 @@
           <v-slider v-model="layoutSettings.d3Force.manyBodyDistanceMin" :min="1" :max="100" label="Min Distance" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.d3Force.manyBodyDistanceMax" :min="100" :max="2000" label="Max Distance" thumb-label density="compact" hide-details class="mb-2"></v-slider>
           
+          <div class="text-caption text-medium-emphasis mb-1">Center Force</div>
+          <v-slider v-model="layoutSettings.d3Force.centerX" :min="-500" :max="500" label="Center X" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.centerY" :min="-500" :max="500" label="Center Y" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.centerStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details class="mb-2"></v-slider>
+          
           <div class="text-caption text-medium-emphasis mb-1">Collision Force</div>
           <v-slider v-model="layoutSettings.d3Force.collideRadius" :min="5" :max="100" label="Radius" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.d3Force.collideStrength" :min="0" :max="1" :step="0.1" label="Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.d3Force.collideIterations" :min="1" :max="10" label="Iterations" thumb-label density="compact" hide-details class="mb-2"></v-slider>
           
-          <div class="text-caption text-medium-emphasis mb-1">Center Force</div>
-          <v-slider v-model="layoutSettings.d3Force.centerStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details class="mb-2"></v-slider>
+          <div class="text-caption text-medium-emphasis mb-1">ForceX (Horizontal Positioning)</div>
+          <v-switch v-model="layoutSettings.d3Force.forceXEnabled" label="Enable ForceX" color="primary" density="compact" hide-details class="mb-1"></v-switch>
+          <v-slider v-model="layoutSettings.d3Force.forceXX" :min="-500" :max="500" label="X Position" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceXEnabled" class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.forceXStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceXEnabled" class="mb-2"></v-slider>
           
-          <div class="text-caption text-medium-emphasis mb-1">Radial Force (Optional)</div>
-          <v-slider v-model="layoutSettings.d3Force.radialStrength" :min="0" :max="1" :step="0.1" label="Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.radialRadius" :min="50" :max="500" label="Radius" thumb-label density="compact" hide-details class="mb-2"></v-slider>
+          <div class="text-caption text-medium-emphasis mb-1">ForceY (Vertical Positioning)</div>
+          <v-switch v-model="layoutSettings.d3Force.forceYEnabled" label="Enable ForceY" color="primary" density="compact" hide-details class="mb-1"></v-switch>
+          <v-slider v-model="layoutSettings.d3Force.forceYY" :min="-500" :max="500" label="Y Position" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceYEnabled" class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.forceYStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceYEnabled" class="mb-2"></v-slider>
+          
+          <div class="text-caption text-medium-emphasis mb-1">Radial Force</div>
+          <v-switch v-model="layoutSettings.d3Force.radialEnabled" label="Enable Radial" color="primary" density="compact" hide-details class="mb-1"></v-switch>
+          <v-slider v-model="layoutSettings.d3Force.radialX" :min="-500" :max="500" label="Center X" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.radialY" :min="-500" :max="500" label="Center Y" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.radialRadius" :min="50" :max="500" label="Radius" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.radialStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-2"></v-slider>
           
           <div class="text-caption text-medium-emphasis mb-1">Iteration Control</div>
           <v-slider v-model="layoutSettings.d3Force.alpha" :min="0" :max="1" :step="0.1" label="Alpha (Energy)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.d3Force.alphaMin" :min="0" :max="0.1" :step="0.001" label="Min Alpha" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.d3Force.alphaDecay" :min="0" :max="0.1" :step="0.001" label="Alpha Decay" thumb-label density="compact" hide-details class="mb-1"></v-slider>
+          <v-slider v-model="layoutSettings.d3Force.alphaTarget" :min="0" :max="1" :step="0.01" label="Alpha Target" thumb-label density="compact" hide-details class="mb-1"></v-slider>
           <v-slider v-model="layoutSettings.d3Force.velocityDecay" :min="0" :max="1" :step="0.05" label="Velocity Decay" thumb-label density="compact" hide-details></v-slider>
         </div>
         
@@ -209,7 +225,12 @@
         
         <div class="d-flex ga-1">
           <v-btn icon="mdi-fit-to-screen" size="small" @click="fitView" title="Fit to screen"></v-btn>
-          <v-btn icon="mdi-pause" size="small" @click="stopAnimation" title="Stop animation"></v-btn>
+          <v-btn 
+            :icon="isAnimating ? 'mdi-pause' : 'mdi-play'" 
+            size="small" 
+            @click="toggleAnimation" 
+            :title="isAnimating ? 'Stop animation' : 'Resume animation'"
+          ></v-btn>
           <v-btn icon="mdi-refresh" size="small" @click="refreshGraph" title="Refresh"></v-btn>
         </div>
       </v-card>
@@ -487,19 +508,33 @@ const layoutSettings = ref({
     manyBodyDistanceMin: 1,
     manyBodyDistanceMax: 1000,
     // Center force
+    centerX: 0,
+    centerY: 0,
     centerStrength: 0.1,
     // Collision force
     collideRadius: 30,
     collideStrength: 0.8,
     collideIterations: 1,
+    // ForceX (horizontal positioning)
+    forceXEnabled: false,
+    forceXX: 0,
+    forceXStrength: 0.1,
+    // ForceY (vertical positioning)
+    forceYEnabled: false,
+    forceYY: 0,
+    forceYStrength: 0.1,
     // Radial force
-    radialStrength: 0,
+    radialEnabled: false,
+    radialX: 0,
+    radialY: 0,
     radialRadius: 200,
+    radialStrength: 0.1,
     // Iteration control
     alpha: 1,
     alphaMin: 0.001,
-    alphaDecay: 0.028,
-    velocityDecay: 0.4,
+    alphaDecay: 0.06,  // Increased from 0.028 for faster animation
+    alphaTarget: 0,
+    velocityDecay: 0.3,  // Decreased from 0.4 for faster movement
   },
   force: {
     nodeSize: 60,
@@ -676,6 +711,9 @@ const expandingNodes = ref<Set<string>>(new Set())
 // Track which stats have been expanded for each event
 type StatType = 'reactions' | 'replies' | 'reposts' | 'mentions' | 'thread'
 const expandedStats = ref<Map<string, Set<StatType>>>(new Map())
+
+// Animation state
+const isAnimating = ref(true)
 
 // Relay manager
 const relayManager = useRelayManager()
@@ -1088,6 +1126,8 @@ function getLayoutConfig(type: string) {
           distanceMax: settings.d3Force.manyBodyDistanceMax,
         },
         center: {
+          x: settings.d3Force.centerX,
+          y: settings.d3Force.centerY,
           strength: settings.d3Force.centerStrength,
         },
         collide: {
@@ -1099,13 +1139,24 @@ function getLayoutConfig(type: string) {
           strength: settings.d3Force.collideStrength,
           iterations: settings.d3Force.collideIterations,
         },
-        radial: settings.d3Force.radialStrength > 0 ? {
-          strength: settings.d3Force.radialStrength,
+        forceX: settings.d3Force.forceXEnabled ? {
+          x: settings.d3Force.forceXX,
+          strength: settings.d3Force.forceXStrength,
+        } : undefined,
+        forceY: settings.d3Force.forceYEnabled ? {
+          y: settings.d3Force.forceYY,
+          strength: settings.d3Force.forceYStrength,
+        } : undefined,
+        radial: settings.d3Force.radialEnabled ? {
+          x: settings.d3Force.radialX,
+          y: settings.d3Force.radialY,
           radius: settings.d3Force.radialRadius,
+          strength: settings.d3Force.radialStrength,
         } : undefined,
         alpha: settings.d3Force.alpha,
         alphaMin: settings.d3Force.alphaMin,
         alphaDecay: settings.d3Force.alphaDecay,
+        alphaTarget: settings.d3Force.alphaTarget,
         velocityDecay: settings.d3Force.velocityDecay,
       }
       
@@ -2481,6 +2532,11 @@ onMounted(() => {
     
     layout: getLayoutConfig(layoutMode.value),
     
+    // Speed up animations globally
+    animation: {
+      duration: 300,  // Faster transitions (default is 500ms)
+    },
+    
     behaviors: [
       'drag-canvas',
       'zoom-canvas',
@@ -2521,12 +2577,8 @@ onMounted(() => {
   graph.setData(graphData.value)
   graph.render()
   
-  // Auto-stop layout animation after initial render
-  setTimeout(() => {
-    if (graph) {
-      graph.stopLayout()
-    }
-  }, 5000)
+  // Animation starts automatically and runs until it stabilizes naturally
+  isAnimating.value = true
   
   // Double-click to expand/collapse node
   graph.on('node:dblclick', (evt: any) => {
@@ -2813,12 +2865,8 @@ watch(layoutMode, (newLayout) => {
     graph.setLayout(getLayoutConfig(newLayout))
     graph.layout()
     
-    // Stop layout animation after stabilization
-    setTimeout(() => {
-      if (graph) {
-        graph.stopLayout()
-      }
-    }, 4000)
+    // Start animation on layout change
+    isAnimating.value = true
   }
 })
 
@@ -2827,12 +2875,8 @@ watch(graphData, (newData) => {
   if (graph) {
     graph.setData(newData)
     graph.render()
-    // Auto-stop layout animation after data update
-    setTimeout(() => {
-      if (graph) {
-        graph.stopLayout()
-      }
-    }, 4000)
+    // Don't auto-start animation on data updates
+    // User can manually start if needed
   }
 }, { deep: true })
 
@@ -2859,22 +2903,25 @@ function fitView() {
   }
 }
 
-function stopAnimation() {
-  if (graph) {
+function toggleAnimation() {
+  if (!graph) return
+  
+  if (isAnimating.value) {
     graph.stopLayout()
-    showMessage('Animation gestoppt', 'info')
+    isAnimating.value = false
+    showMessage('Animation stopped', 'info')
+  } else {
+    graph.layout()
+    isAnimating.value = true
+    showMessage('Animation resumed', 'info')
   }
 }
 
 function refreshGraph() {
   if (graph) {
     graph.layout()
-    // Auto-stop after reasonable time
-    setTimeout(() => {
-      if (graph) {
-        graph.stopLayout()
-      }
-    }, 4000)
+    // Start animation on explicit refresh
+    isAnimating.value = true
   }
 }
 
