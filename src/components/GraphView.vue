@@ -5,6 +5,70 @@
     <!-- Graph controls -->
     <div class="graph-controls">
       <v-card class="pa-2" style="min-width: 280px; max-height: 90vh; overflow-y: auto;">
+        <!-- Search Bar -->
+        <v-text-field
+          v-model="searchQuery"
+          label="Search events..."
+          placeholder="Content, tags, authors..."
+          density="compact"
+          hide-details
+          prepend-inner-icon="mdi-magnify"
+          clearable
+          @keyup.enter="performSearch"
+          @click:clear="clearSearch"
+          class="mb-2"
+        >
+          <template #append>
+            <v-btn
+              size="x-small"
+              icon="mdi-magnify"
+              variant="tonal"
+              color="primary"
+              @click="performSearch"
+              :loading="isSearching"
+            ></v-btn>
+          </template>
+        </v-text-field>
+        
+        <!-- Search Controls -->
+        <div v-if="searchQuery" class="d-flex ga-1 mb-2">
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            prepend-icon="mdi-web"
+            @click="searchNostrRelays"
+            :loading="isSearching"
+            style="flex: 1;"
+          >
+            Search Nostr
+          </v-btn>
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            :prepend-icon="searchMode === 'AND' ? 'mdi-set-center' : 'mdi-set-all'"
+            @click="toggleSearchMode"
+            :title="searchMode + ' mode'"
+          >
+            {{ searchMode }}
+          </v-btn>
+        </div>
+        
+        <!-- Search Results Counter -->
+        <v-chip 
+          v-if="searchActive" 
+          size="small" 
+          variant="flat" 
+          color="primary"
+          closable
+          @click:close="clearSearch"
+          class="mb-2"
+        >
+          <v-icon start>mdi-filter-check</v-icon>
+          {{ searchResults.size }} matches
+        </v-chip>
+        
+        <v-divider v-if="searchQuery || searchActive" class="mb-2"></v-divider>
+        
         <v-select
           v-model="layoutMode"
           :items="layoutOptions"
@@ -183,15 +247,18 @@
 
           <v-divider class="my-1"></v-divider>
 
-          <v-tooltip text="Using 6 Nostr relays" location="end">
+          <v-tooltip :text="`${relayManager.stats.value.enabled} enabled, ${relayManager.stats.value.connected} connected`" location="end">
             <template #activator="{ props }">
               <v-chip
                 v-bind="props"
                 size="small"
                 variant="tonal"
                 prepend-icon="mdi-server-network"
+                :color="relayManager.stats.value.connected > 0 ? 'success' : 'error'"
+                @click="relayDialog.show = true"
+                style="cursor: pointer;"
               >
-                6 Relays
+                {{ relayManager.stats.value.total }} Relays
               </v-chip>
             </template>
           </v-tooltip>
@@ -247,6 +314,122 @@
         </v-list-item>
       </v-list>
     </v-menu>
+    
+    <!-- Relay Manager Dialog -->
+    <v-dialog v-model="relayDialog.show" max-width="700">
+      <v-card>
+        <v-card-title class="d-flex align-center justify-space-between">
+          <span>Relay Manager</span>
+          <v-chip size="small" :color="relayManager.stats.value.connected > 0 ? 'success' : 'error'">
+            {{ relayManager.stats.value.connected }}/{{ relayManager.stats.value.enabled }} Connected
+          </v-chip>
+        </v-card-title>
+        
+        <v-divider></v-divider>
+        
+        <v-card-text style="max-height: 500px; overflow-y: auto;">
+          <!-- Add New Relay -->
+          <div class="mb-4">
+            <v-text-field
+              v-model="newRelayUrl"
+              label="Add New Relay"
+              placeholder="wss://relay.example.com"
+              density="compact"
+              prepend-inner-icon="mdi-plus"
+              :error-messages="relayManager.error.value || undefined"
+              @keyup.enter="handleAddRelay"
+            >
+              <template #append>
+                <v-btn
+                  size="small"
+                  color="primary"
+                  @click="handleAddRelay"
+                  :loading="relayManager.loading.value"
+                >
+                  Add
+                </v-btn>
+              </template>
+            </v-text-field>
+          </div>
+          
+          <!-- Relay List -->
+          <div v-if="relayManager.relays.value.length > 0">
+            <div
+              v-for="relay in relayManager.relays.value"
+              :key="relay.url"
+              class="relay-item"
+            >
+              <v-icon 
+                size="small"
+                :color="getRelayStatusColor(relay.status)"
+                :icon="getRelayStatusIcon(relay.status)"
+              ></v-icon>
+              
+              <div class="relay-info">
+                <div class="relay-url">{{ relay.url }}</div>
+                <div class="relay-details">
+                  <span v-if="relay.lastConnected">
+                    <v-icon size="x-small">mdi-clock-outline</v-icon>
+                    {{ formatRelativeTime(relay.lastConnected) }}
+                  </span>
+                  <span v-if="relay.latency !== null">
+                    <v-icon size="x-small">mdi-speedometer</v-icon>
+                    {{ relay.latency }}ms
+                  </span>
+                  <span>
+                    <v-icon size="x-small">mdi-email-multiple-outline</v-icon>
+                    {{ relay.eventsReceived }} events
+                  </span>
+                </div>
+                <div v-if="relay.lastError" class="relay-error">
+                  {{ relay.lastError }}
+                </div>
+              </div>
+              
+              <div class="relay-actions">
+                <v-btn
+                  size="small"
+                  :icon="relay.enabled ? 'mdi-pause' : 'mdi-play'"
+                  :color="relay.enabled ? 'warning' : 'success'"
+                  variant="tonal"
+                  @click="relayManager.toggleRelay(relay.url)"
+                ></v-btn>
+                <v-btn
+                  size="small"
+                  icon="mdi-delete"
+                  color="error"
+                  variant="tonal"
+                  @click="relayManager.removeRelay(relay.url)"
+                ></v-btn>
+              </div>
+            </div>
+          </div>
+          
+          <v-alert
+            v-if="relayManager.relays.value.length === 0"
+            type="info"
+            variant="tonal"
+            class="mt-4"
+          >
+            No relays configured. Add your first relay above.
+          </v-alert>
+        </v-card-text>
+        
+        <v-divider></v-divider>
+        
+        <v-card-actions>
+          <v-btn
+            prepend-icon="mdi-refresh"
+            @click="handleTestConnections"
+            :loading="testingConnections"
+          >
+            Test Connections
+          </v-btn>
+          <v-spacer></v-spacer>
+          <v-btn @click="relayDialog.show = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -255,6 +438,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Graph } from '@antv/g6'
 import { useGraphStore } from '@/stores/graph'
 import { useEventFetcher } from '@/composables/useEventFetcher'
+import { useRelayManager } from '@/composables/useRelayManager'
+import { useNostr } from '@/composables/useNostr'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
 
@@ -448,6 +633,7 @@ const layoutOptions = computed(() => {
 })
 
 const { fetchGlobalFeed, fetchInitialEvents, fetchByAuthor, expandAroundEvent, fetchUserGraph, isFetching } = useEventFetcher()
+const { testAllRelayConnections } = useNostr()
 
 const snackbar = ref({
   show: false,
@@ -464,6 +650,19 @@ const contextMenu = ref({
   title: '',
   actions: [] as Array<{ label: string, icon: string, handler: () => void }>
 })
+
+// Search state
+const searchQuery = ref('')
+const searchResults = ref<Set<string>>(new Set())
+const searchActive = ref(false)
+const searchMode = ref<'AND' | 'OR'>('AND')
+const isSearching = ref(false)
+
+// Relay manager
+const relayManager = useRelayManager()
+const relayDialog = ref({ show: false })
+const newRelayUrl = ref('')
+const testingConnections = ref(false)
 
 // Helper: Get border color for event kind
 function getKindColor(kind: number): string {
@@ -1547,13 +1746,22 @@ function highlightByAuthor(pubkey: string) {
 function clearFilters() {
   if (!graph) return
   
+  // Don't clear search - it's independent
+  // Only clear other filters (visibility from filterBy* functions)
+  
   const updates: any[] = []
   graphStore.nodes.forEach((node: any) => {
+    // If search is active, preserve search visibility state
+    // Otherwise, make all nodes visible
+    const visibility = searchActive.value 
+      ? (searchResults.value.has(node.id) ? 'visible' : 'hidden')
+      : 'visible'
+    
     updates.push({
       id: node.id,
       style: {
         ...node.style,
-        visibility: 'visible'
+        visibility: visibility,
       }
     })
   })
@@ -1563,12 +1771,18 @@ function clearFilters() {
     graph.render()
   }
   
-  showMessage('All filters cleared', 'success')
+  const message = searchActive.value 
+    ? 'Filters cleared (search still active)' 
+    : 'All filters cleared'
+  showMessage(message, 'success')
 }
 
 // Reset all highlights - remove custom styles
 function resetHighlights() {
   if (!graph) return
+  
+  // Don't clear search - only remove highlight styles
+  // Search has its own clear button
   
   const updates: any[] = []
   
@@ -1589,6 +1803,244 @@ function resetHighlights() {
   }
   
   showMessage('Highlights cleared', 'success')
+}
+
+// Search Functions
+// ================
+
+// Perform local search on current graph
+function performSearch() {
+  if (!graph || !searchQuery.value.trim()) {
+    clearSearch()
+    return
+  }
+  
+  const query = searchQuery.value.toLowerCase().trim()
+  const matchingNodeIds = new Set<string>()
+  
+  // Search through all nodes
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    if (!event) {
+      // Check if it's an author/tag node
+      if (node.data?.type === 'pubkey') {
+        const pubkey = node.data?.pubkey || ''
+        const profile = node.data?.profile
+        const name = profile?.name || profile?.display_name || ''
+        
+        if (pubkey.toLowerCase().includes(query) || 
+            name.toLowerCase().includes(query)) {
+          matchingNodeIds.add(node.id)
+        }
+      } else if (node.data?.type === 'tag') {
+        const tag = node.data?.tag || ''
+        if (tag.toLowerCase().includes(query)) {
+          matchingNodeIds.add(node.id)
+        }
+      }
+      return
+    }
+    
+    let matches = false
+    
+    // Search event content
+    if (event.content?.toLowerCase().includes(query)) {
+      matches = true
+    }
+    
+    // Search tags
+    if (!matches && event.tags) {
+      const hasMatchingTag = event.tags.some((t: string[]) => {
+        if (t[0] === 't' && t[1]?.toLowerCase().includes(query)) {
+          return true // Hashtag match
+        }
+        return t.some((val: string) => val?.toLowerCase().includes(query))
+      })
+      if (hasMatchingTag) matches = true
+    }
+    
+    // Search author pubkey
+    if (!matches && event.pubkey?.toLowerCase().includes(query)) {
+      matches = true
+    }
+    
+    // Search event ID
+    if (!matches && event.id?.toLowerCase().includes(query)) {
+      matches = true
+    }
+    
+    // Search mentions (p-tags)
+    if (!matches && event.tags) {
+      const hasMatchingMention = event.tags.some((t: string[]) => 
+        t[0] === 'p' && t[1]?.toLowerCase().includes(query)
+      )
+      if (hasMatchingMention) matches = true
+    }
+    
+    if (matches) {
+      matchingNodeIds.add(node.id)
+    }
+  })
+  
+  searchResults.value = matchingNodeIds
+  searchActive.value = true
+  applySearchResults()
+  
+  showMessage(`Found ${matchingNodeIds.size} matching ${matchingNodeIds.size === 1 ? 'node' : 'nodes'}`, 'success')
+}
+
+// Apply search results - hide non-matching nodes and edges
+function applySearchResults() {
+  if (!graph || !searchActive.value) return
+  
+  const nodeUpdates: any[] = []
+  const edgeUpdates: any[] = []
+  
+  // Hide/show nodes based on search results
+  graphStore.nodes.forEach((node: any) => {
+    const isMatch = searchResults.value.has(node.id)
+    
+    nodeUpdates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        visibility: isMatch ? 'visible' : 'hidden',
+        stroke: isMatch ? '#3b82f6' : undefined,
+        lineWidth: isMatch ? 3 : undefined,
+      }
+    })
+  })
+  
+  // Hide edges where either source or target is hidden
+  graphStore.edges.forEach((edge: any) => {
+    const sourceVisible = searchResults.value.has(edge.source)
+    const targetVisible = searchResults.value.has(edge.target)
+    const isVisible = sourceVisible && targetVisible
+    
+    edgeUpdates.push({
+      id: edge.id || `${edge.source}-${edge.target}`,
+      style: {
+        ...edge.style,
+        visibility: isVisible ? 'visible' : 'hidden',
+      }
+    })
+  })
+  
+  if (nodeUpdates.length > 0) {
+    graph.updateNodeData(nodeUpdates)
+  }
+  
+  if (edgeUpdates.length > 0) {
+    graph.updateEdgeData(edgeUpdates)
+  }
+  
+  graph.render()
+}
+
+// Clear search
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value.clear()
+  searchActive.value = false
+  
+  if (!graph) return
+  
+  // Show all nodes and edges, remove search highlighting
+  const nodeUpdates: any[] = []
+  const edgeUpdates: any[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    nodeUpdates.push({
+      id: node.id,
+      style: {
+        ...node.style,
+        visibility: 'visible',
+        stroke: undefined,
+        lineWidth: undefined,
+      }
+    })
+  })
+  
+  graphStore.edges.forEach((edge: any) => {
+    edgeUpdates.push({
+      id: edge.id || `${edge.source}-${edge.target}`,
+      style: {
+        ...edge.style,
+        visibility: 'visible',
+      }
+    })
+  })
+  
+  if (nodeUpdates.length > 0) {
+    graph.updateNodeData(nodeUpdates)
+  }
+  
+  if (edgeUpdates.length > 0) {
+    graph.updateEdgeData(edgeUpdates)
+  }
+  
+  graph.render()
+}
+
+// Toggle search mode between AND/OR
+function toggleSearchMode() {
+  searchMode.value = searchMode.value === 'AND' ? 'OR' : 'AND'
+  showMessage(`Search mode: ${searchMode.value}`, 'info')
+  // Re-apply search if active
+  if (searchActive.value) {
+    performSearch()
+  }
+}
+
+// Search Nostr relays for matching events
+async function searchNostrRelays() {
+  if (!searchQuery.value.trim()) {
+    showMessage('Please enter a search query', 'warning')
+    return
+  }
+  
+  isSearching.value = true
+  contextMenu.value.show = false
+  
+  try {
+    const query = searchQuery.value.trim()
+    
+    // Fetch events that might contain the search query
+    // We'll search by content using kind 1 (notes) and kind 30023 (articles)
+    const events = await fetchInitialEvents([
+      { kinds: [1, 30023], limit: 100 }
+    ], { timeout: 10000 })
+    
+    // Filter events locally by search query
+    const matchingEvents = events.filter(event => {
+      const searchLower = query.toLowerCase()
+      
+      // Search content
+      if (event.content?.toLowerCase().includes(searchLower)) return true
+      
+      // Search tags
+      if (event.tags?.some((t: string[]) => 
+        t.some((val: string) => val?.toLowerCase().includes(searchLower))
+      )) return true
+      
+      return false
+    })
+    
+    if (matchingEvents.length > 0) {
+      graphStore.updateWithEvents(matchingEvents)
+      showMessage(`Added ${matchingEvents.length} events from Nostr relays`, 'success')
+      
+      // Automatically perform local search to highlight new results
+      setTimeout(() => performSearch(), 500)
+    } else {
+      showMessage('No matching events found on Nostr relays', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to search Nostr relays:', error)
+    showMessage('Failed to search Nostr relays', 'error')
+  } finally {
+    isSearching.value = false
+  }
 }
 
 // Start investigation - focus on single event
@@ -1965,6 +2417,14 @@ watch(graphData, (newData) => {
   }
 }, { deep: true })
 
+// Watch for relay dialog open to refresh data
+watch(() => relayDialog.value.show, async (isOpen) => {
+  if (isOpen) {
+    await relayManager.loadRelays()
+    relayManager.updateStats()
+  }
+})
+
 function handleResize() {
   if (graph && graphRef.value) {
     graph.setSize(
@@ -2044,6 +2504,82 @@ async function loadFromDb() {
 function clearAll() {
   graphStore.clearGraph()
   showMessage('Graph cleared', 'info')
+}
+
+// Relay Manager Functions
+// ========================
+
+// Handle adding a new relay
+async function handleAddRelay() {
+  if (!newRelayUrl.value.trim()) return
+  
+  const success = await relayManager.addRelay(newRelayUrl.value.trim())
+  if (success) {
+    newRelayUrl.value = ''
+    showMessage('Relay added successfully', 'success')
+    relayManager.updateStats()
+  }
+}
+
+// Test all relay connections
+async function handleTestConnections() {
+  testingConnections.value = true
+  try {
+    await testAllRelayConnections()
+    await relayManager.loadRelays()
+    relayManager.updateStats()
+    showMessage('Relay connections tested', 'success')
+  } catch (error) {
+    console.error('Failed to test relay connections:', error)
+    showMessage('Failed to test connections', 'error')
+  } finally {
+    testingConnections.value = false
+  }
+}
+
+// Get relay status color
+function getRelayStatusColor(status: string): string {
+  switch (status) {
+    case 'connected':
+      return 'success'
+    case 'connecting':
+      return 'info'
+    case 'error':
+      return 'error'
+    case 'disconnected':
+    default:
+      return 'grey'
+  }
+}
+
+// Get relay status icon
+function getRelayStatusIcon(status: string): string {
+  switch (status) {
+    case 'connected':
+      return 'mdi-check-circle'
+    case 'connecting':
+      return 'mdi-loading mdi-spin'
+    case 'error':
+      return 'mdi-alert-circle'
+    case 'disconnected':
+    default:
+      return 'mdi-circle-outline'
+  }
+}
+
+// Format relative time
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now()
+  const diff = now - timestamp
+  const seconds = Math.floor(diff / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (seconds < 60) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  return `${days}d ago`
 }
 
 // Show notification message
@@ -2666,6 +3202,73 @@ async function handleExpand(eventId: string) {
 
 .v-theme--dark :deep(.card-footer) {
   background: #111827;
+}
+
+/* Relay management styles */
+.relay-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.relay-item:last-child {
+  border-bottom: none;
+}
+
+.relay-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.relay-url {
+  font-weight: 500;
+  font-size: 14px;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.relay-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.relay-details > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.relay-error {
+  color: #d32f2f;
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(211, 47, 47, 0.1);
+  border-radius: 4px;
+}
+
+.relay-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.v-theme--dark .relay-item {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.v-theme--dark .relay-details {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.v-theme--dark .relay-error {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.15);
 }
 </style>
 

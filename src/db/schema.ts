@@ -49,6 +49,27 @@ export interface NostrGraphDB extends DBSchema {
     }
   }
 
+  // Relay configuration and status
+  relays: {
+    key: string // relay URL
+    value: {
+      url: string
+      enabled: boolean
+      addedAt: number
+      lastConnected: number | null
+      lastError: string | null
+      errorCount: number
+      status: 'connected' | 'disconnected' | 'error' | 'connecting'
+      latency: number | null // ms
+      eventsReceived: number
+    }
+    indexes: {
+      'by-enabled': boolean
+      'by-status': string
+      'by-added': number
+    }
+  }
+
   // Search index metadata
   searchIndex: {
     key: string
@@ -66,7 +87,7 @@ export interface NostrGraphDB extends DBSchema {
 }
 
 const DB_NAME = 'nostr-graph'
-const DB_VERSION = 1
+const DB_VERSION = 2 // Incremented for relay table
 
 let dbInstance: IDBPDatabase<NostrGraphDB> | null = null
 
@@ -131,6 +152,22 @@ export async function getDB(): Promise<IDBPDatabase<NostrGraphDB>> {
           unique: false,
         })
       }
+
+      // Relays store (added in v2)
+      if (!db.objectStoreNames.contains('relays')) {
+        const relaysStore = db.createObjectStore('relays', {
+          keyPath: 'url',
+        })
+        relaysStore.createIndex('by-enabled', 'enabled', {
+          unique: false,
+        })
+        relaysStore.createIndex('by-status', 'status', {
+          unique: false,
+        })
+        relaysStore.createIndex('by-added', 'addedAt', {
+          unique: false,
+        })
+      }
     },
 
     blocked() {
@@ -166,7 +203,7 @@ export function closeDB(): void {
 export async function clearDB(): Promise<void> {
   const db = await getDB()
   const tx = db.transaction(
-    ['events', 'annotations', 'graphStates', 'searchIndex'],
+    ['events', 'annotations', 'graphStates', 'searchIndex', 'relays'],
     'readwrite',
   )
 
@@ -175,6 +212,7 @@ export async function clearDB(): Promise<void> {
     tx.objectStore('annotations').clear(),
     tx.objectStore('graphStates').clear(),
     tx.objectStore('searchIndex').clear(),
+    tx.objectStore('relays').clear(),
   ])
 
   await tx.done
