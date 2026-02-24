@@ -1,12 +1,7 @@
 import { ref } from 'vue'
 import { type Filter, type Event as NostrEvent } from 'nostr-tools'
 import { useNostr } from './useNostr'
-import {
-  storeEvent,
-  storeEvents,
-  getEventsByPubkey,
-  getEventReferences,
-} from '../db'
+import { storeEvent, storeEvents, getEvent } from '../db'
 
 export interface FetchProgress {
   total: number

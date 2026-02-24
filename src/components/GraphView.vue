@@ -673,6 +673,10 @@ const isSearching = ref(false)
 // Expanding nodes state (for loading indicators)
 const expandingNodes = ref<Set<string>>(new Set())
 
+// Track which stats have been expanded for each event
+type StatType = 'reactions' | 'replies' | 'reposts' | 'mentions' | 'thread'
+const expandedStats = ref<Map<string, Set<StatType>>>(new Map())
+
 // Relay manager
 const relayManager = useRelayManager()
 const relayDialog = ref({ show: false })
@@ -905,6 +909,12 @@ function renderEventNode(d: any): string {
   // Get engagement metrics
   const metrics = getEngagementMetrics(event.id)
   
+  // Count mentions (e tags in this event)
+  const mentionsCount = event.tags?.filter((t: string[]) => t[0] === 'e').length || 0
+  
+  // Check if part of thread (has parent or replies)
+  const hasThread = threadInfo.isReply || metrics.replies > 0
+  
   // Get author info (from graph data if available)
   const authorPubkey = safe(event.pubkey)
   const authorDisplay = authorPubkey.slice(0, 8) + '...'
@@ -981,38 +991,40 @@ function renderEventNode(d: any): string {
         </div>
       ` : ''}
       
-      <!-- Footer with engagement metrics and extend menu -->
+      <!-- Footer with engagement metrics -->
       <div class="card-footer">
         <div class="footer-stats">
           <span class="footer-stat${metrics.replies > 0 ? ' has-count' : ' no-count'}" 
                 data-role="stat-replies" 
                 data-event-id="${nodeId}"
-                title="${metrics.replies || 0} replies">
+                title="Left-click: refresh | Right-click: expand/hide/update">
             💬 ${metrics.replies || 0}
           </span>
           <span class="footer-stat${metrics.reactions > 0 ? ' has-count' : ' no-count'}" 
                 data-role="stat-reactions" 
                 data-event-id="${nodeId}"
-                title="${metrics.reactions || 0} reactions">
+                title="Left-click: refresh | Right-click: expand/hide/update">
             ❤️ ${metrics.reactions || 0}
           </span>
           <span class="footer-stat${metrics.reposts > 0 ? ' has-count' : ' no-count'}" 
                 data-role="stat-reposts" 
                 data-event-id="${nodeId}"
-                title="${metrics.reposts || 0} reposts">
+                title="Left-click: refresh | Right-click: expand/hide/update">
             🔄 ${metrics.reposts || 0}
           </span>
-          <span class="footer-stat${metrics.zaps > 0 ? ' has-count' : ' no-count'}" 
-                title="${metrics.zaps || 0} zaps (not expandable)">
-            ⚡ ${metrics.zaps || 0}
+          <span class="footer-stat${mentionsCount > 0 ? ' has-count' : ' no-count'}" 
+                data-role="stat-mentions" 
+                data-event-id="${nodeId}"
+                title="Left-click: refresh | Right-click: expand/hide/update">
+            🔗 ${mentionsCount || 0}
+          </span>
+          <span class="footer-stat${hasThread ? ' has-count' : ' no-count'}" 
+                data-role="stat-thread" 
+                data-event-id="${nodeId}"
+                title="Left-click: refresh | Right-click: expand/hide/update">
+            🧵 ${hasThread ? '•' : '○'}
           </span>
         </div>
-        <button class="extend-menu-btn" 
-                data-role="extend-menu" 
-                data-event-id="${nodeId}"
-                title="Extend this note">
-          ⋮
-        </button>
       </div>
       
     </div>
@@ -1247,15 +1259,50 @@ function showContextMenu(x: number, y: number, title: string, actions: Array<{ l
   contextMenu.value = { show: true, x, y, title, actions }
 }
 
-// Show extend menu for a note
-function showExtendMenu(x: number, y: number, eventId: string) {
-  showContextMenu(x, y, 'Extend with...', [
-    { label: 'Reactions', icon: 'mdi-heart', handler: () => handleExpandReactions(eventId) },
-    { label: 'Replies', icon: 'mdi-comment', handler: () => handleExpandReplies(eventId) },
-    { label: 'Mentions', icon: 'mdi-at', handler: () => handleExpandMentions(eventId) },
-    { label: 'Reposts', icon: 'mdi-repeat', handler: () => handleExpandReposts(eventId) },
-    { label: 'Thread', icon: 'mdi-message-outline', handler: () => handleExpandThread(eventId) },
-  ])
+// Show stat context menu (right-click on stat)
+function showStatContextMenu(x: number, y: number, eventId: string, statType: StatType) {
+  const labels = {
+    reactions: 'Reactions',
+    replies: 'Replies',
+    reposts: 'Reposts',
+    mentions: 'Mentions',
+    thread: 'Thread'
+  }
+  
+  const icons = {
+    reactions: 'mdi-heart',
+    replies: 'mdi-comment',
+    reposts: 'mdi-repeat',
+    mentions: 'mdi-at',
+    thread: 'mdi-message-outline'
+  }
+  
+  // Check if this stat is already expanded
+  const isExpanded = expandedStats.value.get(eventId)?.has(statType) || false
+  
+  const actions = []
+  
+  if (!isExpanded) {
+    actions.push({ 
+      label: `Expand ${labels[statType]}`, 
+      icon: icons[statType], 
+      handler: () => handleExpandStat(eventId, statType) 
+    })
+  } else {
+    actions.push({ 
+      label: `Hide ${labels[statType]}`, 
+      icon: 'mdi-eye-off', 
+      handler: () => handleHideStat(eventId, statType) 
+    })
+  }
+  
+  actions.push({ 
+    label: `Update ${labels[statType]}`, 
+    icon: 'mdi-refresh', 
+    handler: () => handleRefreshStat(eventId, statType) 
+  })
+  
+  showContextMenu(x, y, labels[statType], actions)
 }
 
 
@@ -1382,7 +1429,7 @@ async function expandByTag(tag: string) {
     // Fetch events with this t-tag
     const events = await fetchInitialEvents([
       { '#t': [tag.toLowerCase()], kinds: [1, 30023], limit: 50 }
-    ], { timeout: 5000 })
+    ])
     
     if (events.length > 0) {
       graphStore.updateWithEvents(events)
@@ -1435,7 +1482,7 @@ async function expandAuthorArticles(pubkey: string) {
   try {
     const events = await fetchInitialEvents([
       { authors: [pubkey], kinds: [30023], limit: 20 }
-    ], { timeout: 5000 })
+    ])
     
     if (events.length > 0) {
       graphStore.updateWithEvents(events)
@@ -1462,7 +1509,7 @@ async function expandAuthorProfile(pubkey: string) {
   try {
     const events = await fetchInitialEvents([
       { authors: [pubkey], kinds: [0], limit: 1 }
-    ], { timeout: 5000 })
+    ])
     
     if (events.length > 0) {
       // Parse profile data
@@ -1514,67 +1561,6 @@ async function expandAuthorNetwork(pubkey: string) {
   }
 }
 
-async function expandThread(eventId: string) {
-  contextMenu.value.show = false
-  showMessage('Expanding thread...', 'info')
-  
-  try {
-    const { replies } = await expandAroundEvent(eventId)
-    
-    if (replies.length > 0) {
-      graphStore.updateWithEvents(replies)
-      showMessage(`Added ${replies.length} replies to thread`, 'success')
-    } else {
-      showMessage('No replies found', 'info')
-    }
-  } catch (error) {
-    console.error('Failed to expand thread:', error)
-    showMessage('Failed to expand thread', 'error')
-  }
-}
-
-async function expandReactions(eventId: string) {
-  contextMenu.value.show = false
-  showMessage('Expanding reactions...', 'info')
-  
-  try {
-    const events = await fetchInitialEvents([
-      { '#e': [eventId], kinds: [7], limit: 100 }
-    ], { timeout: 5000 })
-    
-    if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} reactions`, 'success')
-    } else {
-      showMessage('No reactions found', 'info')
-    }
-  } catch (error) {
-    console.error('Failed to expand reactions:', error)
-    showMessage('Failed to expand reactions', 'error')
-  }
-}
-
-async function expandReposts(eventId: string) {
-  contextMenu.value.show = false
-  showMessage('Expanding reposts...', 'info')
-  
-  try {
-    const events = await fetchInitialEvents([
-      { '#e': [eventId], kinds: [6], limit: 50 }
-    ], { timeout: 5000 })
-    
-    if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} reposts`, 'success')
-    } else {
-      showMessage('No reposts found', 'info')
-    }
-  } catch (error) {
-    console.error('Failed to expand reposts:', error)
-    showMessage('Failed to expand reposts', 'error')
-  }
-}
-
 async function expandOriginalPost(eventId: string) {
   contextMenu.value.show = false
   showMessage('Finding original post...', 'info')
@@ -1594,7 +1580,7 @@ async function expandOriginalPost(eventId: string) {
       const referencedId = eTag[1]
       const events = await fetchInitialEvents([
         { ids: [referencedId] }
-      ], { timeout: 5000 })
+      ])
       
       if (events.length > 0) {
         graphStore.updateWithEvents(events)
@@ -1611,7 +1597,231 @@ async function expandOriginalPost(eventId: string) {
   }
 }
 
-// Handler functions using the composable expand functions
+// Handler functions for stat interactions
+
+// Refresh stat count (left-click)
+async function handleRefreshStat(eventId: string, statType: StatType) {
+  contextMenu.value.show = false
+  
+  if (statType === 'reactions') {
+    await handleRefreshReactions(eventId)
+  } else if (statType === 'replies') {
+    await handleRefreshReplies(eventId)
+  } else if (statType === 'reposts') {
+    await handleRefreshReposts(eventId)
+  } else if (statType === 'mentions') {
+    await handleRefreshMentions(eventId)
+  } else if (statType === 'thread') {
+    await handleRefreshThread(eventId)
+  }
+}
+
+// Expand stat (right-click > Expand)
+async function handleExpandStat(eventId: string, statType: StatType) {
+  contextMenu.value.show = false
+  
+  // Mark as expanded
+  if (!expandedStats.value.has(eventId)) {
+    expandedStats.value.set(eventId, new Set())
+  }
+  expandedStats.value.get(eventId)!.add(statType)
+  
+  if (statType === 'reactions') {
+    await handleExpandReactions(eventId)
+  } else if (statType === 'replies') {
+    await handleExpandReplies(eventId)
+  } else if (statType === 'reposts') {
+    await handleExpandReposts(eventId)
+  } else if (statType === 'mentions') {
+    await handleExpandMentions(eventId)
+  } else if (statType === 'thread') {
+    await handleExpandThread(eventId)
+  }
+}
+
+// Hide stat nodes (right-click > Hide)
+function handleHideStat(eventId: string, statType: StatType) {
+  contextMenu.value.show = false
+  
+  // Mark as not expanded
+  expandedStats.value.get(eventId)?.delete(statType)
+  
+  // Remove nodes related to this stat type
+  const nodesToRemove: string[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    if (!event) return
+    
+    // Check if this node is related to the stat type
+    const eTags = event.tags?.filter((t: string[]) => t[0] === 'e') || []
+    const referencesEvent = eTags.some((t: string[]) => t[1] === eventId)
+    
+    if (referencesEvent) {
+      if (statType === 'reactions' && event.kind === 7) {
+        nodesToRemove.push(node.id)
+      } else if (statType === 'replies' && (event.kind === 1 || event.kind === 30023)) {
+        nodesToRemove.push(node.id)
+      } else if (statType === 'reposts' && event.kind === 6) {
+        nodesToRemove.push(node.id)
+      } else if (statType === 'mentions') {
+        // For mentions, check if this event was mentioned in the source event's tags
+        const sourceNode = graphStore.nodes.find((n: any) => n.id === eventId)
+        if (sourceNode?.data?.event) {
+          const mentionedIds = sourceNode.data.event.tags
+            .filter((t: string[]) => t[0] === 'e')
+            .map((t: string[]) => t[1])
+          if (mentionedIds.includes(event.id)) {
+            nodesToRemove.push(node.id)
+          }
+        }
+      }
+    }
+    
+    // For thread, remove parent and replies
+    if (statType === 'thread') {
+      // Check if this is a parent or reply
+      const isParentOf = event.tags?.some((t: string[]) => t[0] === 'e' && t[1] === eventId)
+      const sourceEvent = graphStore.nodes.find((n: any) => n.id === eventId)?.data?.event
+      const isChildOf = sourceEvent?.tags?.some((t: string[]) => t[0] === 'e' && t[1] === event.id)
+      
+      if (isParentOf || isChildOf) {
+        nodesToRemove.push(node.id)
+      }
+    }
+  })
+  
+  // Remove nodes and their edges
+  nodesToRemove.forEach(nodeId => {
+    graphStore.removeNode(nodeId)
+  })
+  
+  showMessage(`Hidden ${nodesToRemove.length} ${statType} nodes`, 'success')
+}
+
+// Refresh handlers (fetch new count, update graph if expanded)
+async function handleRefreshReactions(eventId: string) {
+  expandingNodes.value.add(eventId)
+  showMessage('Refreshing reactions...', 'info')
+  
+  try {
+    const events = await expandReactions(eventId)
+    
+    // If expanded, update graph
+    const isExpanded = expandedStats.value.get(eventId)?.has('reactions')
+    if (isExpanded && events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Updated ${events.length} reactions`, 'success')
+    } else {
+      showMessage(`Found ${events.length} reactions`, 'info')
+      // Trigger re-render to update count
+      if (graph) graph.render()
+    }
+  } catch (error) {
+    console.error('Failed to refresh reactions:', error)
+    showMessage('Failed to refresh reactions', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleRefreshReplies(eventId: string) {
+  expandingNodes.value.add(eventId)
+  showMessage('Refreshing replies...', 'info')
+  
+  try {
+    const events = await expandReplies(eventId)
+    
+    const isExpanded = expandedStats.value.get(eventId)?.has('replies')
+    if (isExpanded && events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Updated ${events.length} replies`, 'success')
+    } else {
+      showMessage(`Found ${events.length} replies`, 'info')
+      if (graph) graph.render()
+    }
+  } catch (error) {
+    console.error('Failed to refresh replies:', error)
+    showMessage('Failed to refresh replies', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleRefreshReposts(eventId: string) {
+  expandingNodes.value.add(eventId)
+  showMessage('Refreshing reposts...', 'info')
+  
+  try {
+    const events = await expandReposts(eventId)
+    
+    const isExpanded = expandedStats.value.get(eventId)?.has('reposts')
+    if (isExpanded && events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Updated ${events.length} reposts`, 'success')
+    } else {
+      showMessage(`Found ${events.length} reposts`, 'info')
+      if (graph) graph.render()
+    }
+  } catch (error) {
+    console.error('Failed to refresh reposts:', error)
+    showMessage('Failed to refresh reposts', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleRefreshMentions(eventId: string) {
+  expandingNodes.value.add(eventId)
+  showMessage('Refreshing mentions...', 'info')
+  
+  try {
+    const events = await expandMentions(eventId)
+    
+    const isExpanded = expandedStats.value.get(eventId)?.has('mentions')
+    if (isExpanded && events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Updated ${events.length} mentions`, 'success')
+    } else {
+      showMessage(`Found ${events.length} mentions`, 'info')
+      if (graph) graph.render()
+    }
+  } catch (error) {
+    console.error('Failed to refresh mentions:', error)
+    showMessage('Failed to refresh mentions', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleRefreshThread(eventId: string) {
+  expandingNodes.value.add(eventId)
+  showMessage('Refreshing thread...', 'info')
+  
+  try {
+    const { parent, replies } = await expandThread(eventId)
+    const allEvents = [...(parent ? [parent] : []), ...replies]
+    
+    const isExpanded = expandedStats.value.get(eventId)?.has('thread')
+    if (isExpanded && allEvents.length > 0) {
+      graphStore.updateWithEvents(allEvents)
+      const parts = []
+      if (parent) parts.push('parent')
+      if (replies.length > 0) parts.push(`${replies.length} replies`)
+      showMessage(`Updated ${parts.join(' and ')}`, 'success')
+    } else {
+      showMessage(`Found ${allEvents.length} thread events`, 'info')
+      if (graph) graph.render()
+    }
+  } catch (error) {
+    console.error('Failed to refresh thread:', error)
+    showMessage('Failed to refresh thread', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+// Expand handlers (add to graph and mark as expanded)
 async function handleExpandReactions(eventId: string) {
   contextMenu.value.show = false
   expandingNodes.value.add(eventId)
@@ -2180,7 +2390,7 @@ async function searchNostrRelays() {
     // We'll search by content using kind 1 (notes) and kind 30023 (articles)
     const events = await fetchInitialEvents([
       { kinds: [1, 30023], limit: 100 }
-    ], { timeout: 10000 })
+    ])
     
     // Filter events locally by search query
     const matchingEvents = events.filter(event => {
@@ -2364,32 +2574,24 @@ onMounted(() => {
   graphRef.value.addEventListener('click', (e: Event) => {
     const target = e.target as HTMLElement
     
-    // Check for extend menu button
-    const extendBtn = target.closest('[data-role="extend-menu"]')
-    if (extendBtn) {
-      const eventId = extendBtn.getAttribute('data-event-id')
-      if (eventId) {
-        const rect = extendBtn.getBoundingClientRect()
-        showExtendMenu(rect.right, rect.top, eventId)
-      }
-      return
-    }
-    
-    // Check for stat clicks (reactions, replies, reposts)
+    // Check for stat clicks (left-click = refresh count)
     const stat = target.closest('[data-role^="stat-"]')
     if (stat) {
       const role = stat.getAttribute('data-role')
       const eventId = stat.getAttribute('data-event-id')
       
-      // Only handle if stat has count (has-count class)
-      if (eventId && stat.classList.contains('has-count')) {
-        // Map stat role to handler
+      if (eventId) {
+        // Map stat role to refresh handler
         if (role === 'stat-reactions') {
-          handleExpandReactions(eventId)
+          handleRefreshReactions(eventId)
         } else if (role === 'stat-replies') {
-          handleExpandReplies(eventId)
+          handleRefreshReplies(eventId)
         } else if (role === 'stat-reposts') {
-          handleExpandReposts(eventId)
+          handleRefreshReposts(eventId)
+        } else if (role === 'stat-mentions') {
+          handleRefreshMentions(eventId)
+        } else if (role === 'stat-thread') {
+          handleRefreshThread(eventId)
         }
       }
       return
@@ -2431,6 +2633,19 @@ onMounted(() => {
     e.preventDefault()
     
     const target = e.target as HTMLElement
+    
+    // Check if right-clicking on a stat (reactions, replies, etc.)
+    const stat = target.closest('[data-role^="stat-"]')
+    if (stat) {
+      const role = stat.getAttribute('data-role')
+      const eventId = stat.getAttribute('data-event-id')
+      
+      if (eventId && role) {
+        const statType = role.replace('stat-', '') as StatType
+        showStatContextMenu(e.clientX, e.clientY, eventId, statType)
+        return
+      }
+    }
     
     // Check if clicking on a pubkey node (author circle)
     const pubkeyNodeEl = target.closest('.pubkey-node[data-item-id][data-pubkey]')
@@ -3437,23 +3652,6 @@ async function handleExpand(eventId: string) {
   display: flex;
   gap: 12px;
   flex: 1;
-}
-
-:deep(.extend-menu-btn) {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 4px;
-  color: #6b7280;
-  transition: all 0.2s;
-  border-radius: 4px;
-  line-height: 1;
-}
-
-:deep(.extend-menu-btn:hover) {
-  background: #f3f4f6;
-  color: #111827;
 }
 
 /* Loading state for expanding nodes */
