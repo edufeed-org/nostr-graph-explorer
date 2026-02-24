@@ -1,12 +1,7 @@
 import { ref } from 'vue'
 import { type Filter, type Event as NostrEvent } from 'nostr-tools'
 import { useNostr } from './useNostr'
-import {
-  storeEvent,
-  storeEvents,
-  getEventsByPubkey,
-  getEventReferences,
-} from '@/db'
+import { storeEvent, storeEvents, getEvent } from '@/db'
 
 export interface FetchProgress {
   total: number
@@ -22,15 +17,12 @@ export function useEventFetcher() {
   /**
    * Fetch initial events for a user/topic
    */
-  async function fetchInitialEvents(
-    filters: Filter[],
-    options: { limit?: number; timeout?: number } = {},
-  ): Promise<NostrEvent[]> {
+  async function fetchInitialEvents(filters: Filter[]): Promise<NostrEvent[]> {
     isFetching.value = true
     progress.value = { total: 0, fetched: 0, stored: 0 }
 
     try {
-      const events = await fetchEvents(filters, options.timeout)
+      const events = await fetchEvents(filters)
       progress.value.fetched = events.length
       progress.value.total = events.length
 
@@ -179,6 +171,140 @@ export function useEventFetcher() {
     return fetchInitialEvents([filter])
   }
 
+  /**
+   * Expand with reactions (kind 7) for a specific event
+   */
+  async function expandReactions(eventId: string): Promise<NostrEvent[]> {
+    isFetching.value = true
+    try {
+      const filter: Filter = {
+        kinds: [7],
+        '#e': [eventId],
+        limit: 100,
+      }
+      const events = await fetchEvents([filter])
+      await storeEvents(events)
+      return events
+    } finally {
+      isFetching.value = false
+    }
+  }
+
+  /**
+   * Expand with replies for a specific event
+   */
+  async function expandReplies(eventId: string): Promise<NostrEvent[]> {
+    isFetching.value = true
+    try {
+      const filter: Filter = {
+        kinds: [1, 30023], // Notes and articles
+        '#e': [eventId],
+        limit: 100,
+      }
+      const events = await fetchEvents([filter])
+      await storeEvents(events)
+      return events
+    } finally {
+      isFetching.value = false
+    }
+  }
+
+  /**
+   * Expand with reposts (kind 6) for a specific event
+   */
+  async function expandReposts(eventId: string): Promise<NostrEvent[]> {
+    isFetching.value = true
+    try {
+      const filter: Filter = {
+        kinds: [6],
+        '#e': [eventId],
+        limit: 100,
+      }
+      const events = await fetchEvents([filter])
+      await storeEvents(events)
+      return events
+    } finally {
+      isFetching.value = false
+    }
+  }
+
+  /**
+   * Expand with events mentioned in this event's tags
+   */
+  async function expandMentions(eventId: string): Promise<NostrEvent[]> {
+    isFetching.value = true
+    try {
+      // First get the event from the database to read its tags
+      const sourceEvent = await getEvent(eventId)
+      if (!sourceEvent) return []
+
+      // Extract event IDs from 'e' tags
+      const mentionedIds = sourceEvent.tags
+        .filter((tag) => tag[0] === 'e' && tag[1])
+        .map((tag) => tag[1])
+
+      if (mentionedIds.length === 0) return []
+
+      // Fetch the mentioned events
+      const filter: Filter = {
+        ids: mentionedIds,
+        limit: 100,
+      }
+      const events = await fetchEvents([filter])
+      await storeEvents(events)
+      return events
+    } finally {
+      isFetching.value = false
+    }
+  }
+
+  /**
+   * Expand full thread (parent + all replies)
+   */
+  async function expandThread(eventId: string): Promise<{
+    parent: NostrEvent | null
+    replies: NostrEvent[]
+  }> {
+    isFetching.value = true
+    try {
+      // Get the event to find parent
+      const sourceEvent = await getEvent(eventId)
+      let parent: NostrEvent | null = null
+
+      if (sourceEvent) {
+        // Find parent from 'e' tags (look for reply/root markers)
+        const eTags = sourceEvent.tags.filter((tag) => tag[0] === 'e')
+        const replyTag =
+          eTags.find((tag) => tag[3] === 'reply') ||
+          eTags.find((tag) => tag[3] === 'root')
+
+        if (replyTag && replyTag[1]) {
+          const parentId = replyTag[1]
+          const parentFilter: Filter = {
+            ids: [parentId],
+            limit: 1,
+          }
+          const parents = await fetchEvents([parentFilter])
+          await storeEvents(parents)
+          parent = parents[0] || null
+        }
+      }
+
+      // Fetch all replies
+      const replyFilter: Filter = {
+        kinds: [1, 30023],
+        '#e': [eventId],
+        limit: 100,
+      }
+      const replies = await fetchEvents([replyFilter])
+      await storeEvents(replies)
+
+      return { parent, replies }
+    } finally {
+      isFetching.value = false
+    }
+  }
+
   return {
     isFetching,
     progress,
@@ -189,5 +315,10 @@ export function useEventFetcher() {
     fetchByKind,
     fetchByAuthor,
     fetchGlobalFeed,
+    expandReactions,
+    expandReplies,
+    expandReposts,
+    expandMentions,
+    expandThread,
   }
 }

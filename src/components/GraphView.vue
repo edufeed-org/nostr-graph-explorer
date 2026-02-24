@@ -632,7 +632,19 @@ const layoutOptions = computed(() => {
   })
 })
 
-const { fetchGlobalFeed, fetchInitialEvents, fetchByAuthor, expandAroundEvent, fetchUserGraph, isFetching } = useEventFetcher()
+const { 
+  fetchGlobalFeed, 
+  fetchInitialEvents, 
+  fetchByAuthor, 
+  expandAroundEvent, 
+  fetchUserGraph, 
+  isFetching,
+  expandReactions,
+  expandReplies,
+  expandReposts,
+  expandMentions,
+  expandThread
+} = useEventFetcher()
 const { testAllRelayConnections, loadRelaysFromDB } = useNostr()
 
 const snackbar = ref({
@@ -657,6 +669,9 @@ const searchResults = ref<Set<string>>(new Set())
 const searchActive = ref(false)
 const searchMode = ref<'AND' | 'OR'>('AND')
 const isSearching = ref(false)
+
+// Expanding nodes state (for loading indicators)
+const expandingNodes = ref<Set<string>>(new Set())
 
 // Relay manager
 const relayManager = useRelayManager()
@@ -917,8 +932,10 @@ function renderEventNode(d: any): string {
   const minHeight = 200
   const dynamicHeight = Math.min(maxHeight, Math.max(minHeight, baseHeight + contentLength * heightPerChar))
   
+  const isLoading = expandingNodes.value.has(nodeId)
+  
   return `
-    <div class="nostr-card" 
+    <div class="nostr-card${isLoading ? ' node-loading' : ''}" 
          data-item-id="${nodeId}" 
          data-kind="${kind}"
          data-author="${authorPubkey}"
@@ -964,12 +981,38 @@ function renderEventNode(d: any): string {
         </div>
       ` : ''}
       
-      <!-- Footer with engagement metrics -->
+      <!-- Footer with engagement metrics and extend menu -->
       <div class="card-footer">
-        <span class="footer-stat" title="Replies">💬 ${metrics.replies || 0}</span>
-        <span class="footer-stat" title="Reactions">❤️ ${metrics.reactions || 0}</span>
-        <span class="footer-stat" title="Reposts">🔄 ${metrics.reposts || 0}</span>
-        <span class="footer-stat" title="Zaps">⚡ ${metrics.zaps || 0}</span>
+        <div class="footer-stats">
+          <span class="footer-stat${metrics.replies > 0 ? ' has-count' : ' no-count'}" 
+                data-role="stat-replies" 
+                data-event-id="${nodeId}"
+                title="${metrics.replies || 0} replies">
+            💬 ${metrics.replies || 0}
+          </span>
+          <span class="footer-stat${metrics.reactions > 0 ? ' has-count' : ' no-count'}" 
+                data-role="stat-reactions" 
+                data-event-id="${nodeId}"
+                title="${metrics.reactions || 0} reactions">
+            ❤️ ${metrics.reactions || 0}
+          </span>
+          <span class="footer-stat${metrics.reposts > 0 ? ' has-count' : ' no-count'}" 
+                data-role="stat-reposts" 
+                data-event-id="${nodeId}"
+                title="${metrics.reposts || 0} reposts">
+            🔄 ${metrics.reposts || 0}
+          </span>
+          <span class="footer-stat${metrics.zaps > 0 ? ' has-count' : ' no-count'}" 
+                title="${metrics.zaps || 0} zaps (not expandable)">
+            ⚡ ${metrics.zaps || 0}
+          </span>
+        </div>
+        <button class="extend-menu-btn" 
+                data-role="extend-menu" 
+                data-event-id="${nodeId}"
+                title="Extend this note">
+          ⋮
+        </button>
       </div>
       
     </div>
@@ -1203,6 +1246,18 @@ watch(isTreeCompatible, (isTree) => {
 function showContextMenu(x: number, y: number, title: string, actions: Array<{ label: string, icon: string, handler: () => void }>) {
   contextMenu.value = { show: true, x, y, title, actions }
 }
+
+// Show extend menu for a note
+function showExtendMenu(x: number, y: number, eventId: string) {
+  showContextMenu(x, y, 'Extend with...', [
+    { label: 'Reactions', icon: 'mdi-heart', handler: () => handleExpandReactions(eventId) },
+    { label: 'Replies', icon: 'mdi-comment', handler: () => handleExpandReplies(eventId) },
+    { label: 'Mentions', icon: 'mdi-at', handler: () => handleExpandMentions(eventId) },
+    { label: 'Reposts', icon: 'mdi-repeat', handler: () => handleExpandReposts(eventId) },
+    { label: 'Thread', icon: 'mdi-message-outline', handler: () => handleExpandThread(eventId) },
+  ])
+}
+
 
 // Helper: Create or get author node
 function createAuthorNode(pubkey: string, profile?: any) {
@@ -1555,6 +1610,122 @@ async function expandOriginalPost(eventId: string) {
     showMessage('Failed to find original post', 'error')
   }
 }
+
+// Handler functions using the composable expand functions
+async function handleExpandReactions(eventId: string) {
+  contextMenu.value.show = false
+  expandingNodes.value.add(eventId)
+  showMessage('Expanding reactions...', 'info')
+  
+  try {
+    const events = await expandReactions(eventId)
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} reactions`, 'success')
+    } else {
+      showMessage('No reactions found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand reactions:', error)
+    showMessage('Failed to expand reactions', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleExpandReplies(eventId: string) {
+  contextMenu.value.show = false
+  expandingNodes.value.add(eventId)
+  showMessage('Expanding replies...', 'info')
+  
+  try {
+    const events = await expandReplies(eventId)
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} replies`, 'success')
+    } else {
+      showMessage('No replies found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand replies:', error)
+    showMessage('Failed to expand replies', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleExpandReposts(eventId: string) {
+  contextMenu.value.show = false
+  expandingNodes.value.add(eventId)
+  showMessage('Expanding reposts...', 'info')
+  
+  try {
+    const events = await expandReposts(eventId)
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} reposts`, 'success')
+    } else {
+      showMessage('No reposts found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand reposts:', error)
+    showMessage('Failed to expand reposts', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleExpandMentions(eventId: string) {
+  contextMenu.value.show = false
+  expandingNodes.value.add(eventId)
+  showMessage('Expanding mentions...', 'info')
+  
+  try {
+    const events = await expandMentions(eventId)
+    
+    if (events.length > 0) {
+      graphStore.updateWithEvents(events)
+      showMessage(`Added ${events.length} mentions`, 'success')
+    } else {
+      showMessage('No mentions found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand mentions:', error)
+    showMessage('Failed to expand mentions', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
+async function handleExpandThread(eventId: string) {
+  contextMenu.value.show = false
+  expandingNodes.value.add(eventId)
+  showMessage('Expanding thread...', 'info')
+  
+  try {
+    const { parent, replies } = await expandThread(eventId)
+    const allEvents = [...(parent ? [parent] : []), ...replies]
+    
+    if (allEvents.length > 0) {
+      graphStore.updateWithEvents(allEvents)
+      const parts = []
+      if (parent) parts.push('parent')
+      if (replies.length > 0) parts.push(`${replies.length} replies`)
+      showMessage(`Added ${parts.join(' and ')}`, 'success')
+    } else {
+      showMessage('No thread context found', 'info')
+    }
+  } catch (error) {
+    console.error('Failed to expand thread:', error)
+    showMessage('Failed to expand thread', 'error')
+  } finally {
+    expandingNodes.value.delete(eventId)
+  }
+}
+
 
 // Filter functions
 function filterByTag(tag: string) {
@@ -2192,6 +2363,39 @@ onMounted(() => {
   // Close button click (DOM event delegation)
   graphRef.value.addEventListener('click', (e: Event) => {
     const target = e.target as HTMLElement
+    
+    // Check for extend menu button
+    const extendBtn = target.closest('[data-role="extend-menu"]')
+    if (extendBtn) {
+      const eventId = extendBtn.getAttribute('data-event-id')
+      if (eventId) {
+        const rect = extendBtn.getBoundingClientRect()
+        showExtendMenu(rect.right, rect.top, eventId)
+      }
+      return
+    }
+    
+    // Check for stat clicks (reactions, replies, reposts)
+    const stat = target.closest('[data-role^="stat-"]')
+    if (stat) {
+      const role = stat.getAttribute('data-role')
+      const eventId = stat.getAttribute('data-event-id')
+      
+      // Only handle if stat has count (has-count class)
+      if (eventId && stat.classList.contains('has-count')) {
+        // Map stat role to handler
+        if (role === 'stat-reactions') {
+          handleExpandReactions(eventId)
+        } else if (role === 'stat-replies') {
+          handleExpandReplies(eventId)
+        } else if (role === 'stat-reposts') {
+          handleExpandReposts(eventId)
+        }
+      }
+      return
+    }
+    
+    // Check for close button
     const closeBtn = target.closest('[data-role="close"]')
     if (!closeBtn) return
     
@@ -3209,6 +3413,63 @@ async function handleExpand(eventId: string) {
 :deep(.footer-stat:hover) {
   color: #111827;
 }
+
+:deep(.footer-stat.has-count) {
+  cursor: pointer;
+}
+
+:deep(.footer-stat.has-count:hover) {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+:deep(.footer-stat.no-count) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+:deep(.footer-stat.no-count:hover) {
+  color: #6b7280;
+  text-decoration: none;
+}
+
+:deep(.footer-stats) {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+}
+
+:deep(.extend-menu-btn) {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  color: #6b7280;
+  transition: all 0.2s;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+:deep(.extend-menu-btn:hover) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* Loading state for expanding nodes */
+:deep(.node-loading) {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 
 /* Dark theme support for new cards */
 .v-theme--dark :deep(.nostr-card) {
