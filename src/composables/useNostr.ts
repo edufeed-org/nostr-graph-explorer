@@ -10,7 +10,7 @@ import {
   initializeDefaultRelays,
   updateRelayStatus,
   incrementRelayEventCount,
-} from '@/db/relays'
+} from '../db/relays'
 
 // Shared pool instance across all composable instances
 let poolInstance: SimplePool | null = null

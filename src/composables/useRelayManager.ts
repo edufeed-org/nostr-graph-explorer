@@ -9,7 +9,7 @@ import {
   toggleRelayEnabled,
   initializeDefaultRelays,
   type RelayInfo,
-} from '@/db/relays'
+} from '../db/relays'
 
 export function useRelayManager() {
   const relays = ref<RelayInfo[]>([])
