@@ -53,14 +53,8 @@ export function extractEdges(event: NostrEvent): GraphEdge[] {
     }
   }
 
-  // Author edge (event -> author)
-  edges.push({
-    source: event.id,
-    target: event.pubkey,
-    data: {
-      type: 'authored-by',
-    },
-  })
+  // Note: authored-by edges are created only when author nodes exist
+  // This is handled explicitly in expansion functions
 
   return edges
 }
@@ -139,25 +133,7 @@ export function eventsToGraph(events: NostrEvent[]): {
       nodeIds.add(event.id)
     }
 
-    // Add author node (as pubkey) - enrich with profile data if available
-    if (!nodeIds.has(event.pubkey)) {
-      const profile = profileMap.get(event.pubkey)
-      const displayName =
-        profile?.name || profile?.display_name || event.pubkey.slice(0, 8)
-
-      nodes.push({
-        id: event.pubkey,
-        label: `👤 ${displayName}`,
-        data: {
-          type: 'pubkey',
-          pubkey: event.pubkey,
-          profile: profile || null,
-        },
-      })
-      nodeIds.add(event.pubkey)
-    }
-
-    // Extract edges
+    // Extract edges (no automatic author nodes)
     const eventEdges = extractEdges(event)
     edges.push(...eventEdges)
   }

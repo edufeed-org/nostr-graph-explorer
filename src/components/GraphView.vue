@@ -1005,6 +1005,61 @@ function showContextMenu(x: number, y: number, title: string, actions: Array<{ l
   contextMenu.value = { show: true, x, y, title, actions }
 }
 
+// Helper: Create or get author node
+function createAuthorNode(pubkey: string, profile?: any) {
+  // Check if author node already exists
+  const existingNode = graphStore.nodes.find((n: any) => n.id === pubkey)
+  if (existingNode) {
+    // Update profile if provided
+    if (profile) {
+      existingNode.data.profile = profile
+      existingNode.label = `👤 ${profile.name || profile.display_name || pubkey.slice(0, 8)}`
+    }
+    return pubkey
+  }
+  
+  // Create new author node
+  const displayName = profile?.name || profile?.display_name || pubkey.slice(0, 8)
+  const authorNode = {
+    id: pubkey,
+    label: `👤 ${displayName}`,
+    data: {
+      type: 'pubkey',
+      pubkey: pubkey,
+      profile: profile || null,
+    }
+  }
+  
+  graphStore.addNode(authorNode)
+  return pubkey
+}
+
+// Helper: Connect events to author node
+function connectEventsToAuthor(pubkey: string) {
+  const edges: any[] = []
+  
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event
+    if (!event) return
+    
+    // Check if this event is by this author
+    if (event.pubkey === pubkey) {
+      // Create edge from event to author
+      const edge = {
+        source: event.id,
+        target: pubkey,
+        data: {
+          type: 'authored-by',
+        }
+      }
+      edges.push(edge)
+    }
+  })
+  
+  edges.forEach(edge => graphStore.addEdge(edge))
+  return edges.length
+}
+
 // Helper: Create or get tag node
 function createTagNode(tag: string) {
   const tagNodeId = `tag:${tag.toLowerCase()}`
@@ -1103,9 +1158,15 @@ async function expandAuthorPosts(pubkey: string) {
     
     if (notes.length > 0) {
       graphStore.updateWithEvents(notes)
-      showMessage(`Added ${notes.length} posts from author`, 'success')
+      // Create author node and connect all events by this author
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`Added ${notes.length} posts from author (${connectedCount} connections)`, 'success')
     } else {
-      showMessage('No posts found from this author', 'info')
+      // Still create author node even if no new posts
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`No new posts found, but connected ${connectedCount} existing posts`, 'info')
     }
   } catch (error) {
     console.error('Failed to expand author posts:', error)
@@ -1124,9 +1185,15 @@ async function expandAuthorArticles(pubkey: string) {
     
     if (events.length > 0) {
       graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} articles from author`, 'success')
+      // Create author node and connect all events by this author
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`Added ${events.length} articles from author (${connectedCount} connections)`, 'success')
     } else {
-      showMessage('No articles found from this author', 'info')
+      // Still create author node even if no new articles
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`No new articles found, but connected ${connectedCount} existing events`, 'info')
     }
   } catch (error) {
     console.error('Failed to expand author articles:', error)
@@ -1144,10 +1211,23 @@ async function expandAuthorProfile(pubkey: string) {
     ], { timeout: 5000 })
     
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage('Profile added to graph', 'success')
+      // Parse profile data
+      let profile = null
+      try {
+        profile = JSON.parse(events[0].content)
+      } catch (e) {
+        console.warn('Failed to parse profile:', e)
+      }
+      
+      // Create/update author node with profile data
+      createAuthorNode(pubkey, profile)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`Profile loaded (${connectedCount} events connected)`, 'success')
     } else {
-      showMessage('Profile not found', 'info')
+      // Create author node without profile
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`Profile not found, but connected ${connectedCount} events`, 'info')
     }
   } catch (error) {
     console.error('Failed to fetch author profile:', error)
@@ -1164,9 +1244,15 @@ async function expandAuthorNetwork(pubkey: string) {
     
     if (events.length > 0) {
       graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} events from network (${follows.length} contacts)`, 'success')
+      // Create author node and connect events
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`Added ${events.length} events from network (${follows.length} contacts, ${connectedCount} connections)`, 'success')
     } else {
-      showMessage('No network data found', 'info')
+      // Still create author node
+      createAuthorNode(pubkey)
+      const connectedCount = connectEventsToAuthor(pubkey)
+      showMessage(`No new network data found, but connected ${connectedCount} events`, 'info')
     }
   } catch (error) {
     console.error('Failed to expand social network:', error)
@@ -1519,45 +1605,10 @@ function startInvestigation(eventId: string) {
     return
   }
   
-  // Get the event data to create author node and edge
-  const event = selectedNode.data?.event
-  const nodes: any[] = [selectedNode]
-  const edges: any[] = []
-  
-  // If this is an event (not a pubkey node), create the author node and edge
-  if (event && event.pubkey) {
-    // Check if we already have the author node in the original graph
-    const existingAuthorNode = graphStore.nodes.find((node: any) => node.id === event.pubkey)
-    
-    if (existingAuthorNode) {
-      nodes.push(existingAuthorNode)
-    } else {
-      // Create a simple author node
-      nodes.push({
-        id: event.pubkey,
-        label: `👤 ${event.pubkey.slice(0, 8)}...`,
-        data: {
-          type: 'pubkey',
-          pubkey: event.pubkey,
-          profile: null,
-        }
-      })
-    }
-    
-    // Create edge from event to author
-    edges.push({
-      source: event.id,
-      target: event.pubkey,
-      data: {
-        type: 'authored-by',
-      }
-    })
-  }
-  
-  // Clear the graph and keep only the selected node + author
+  // Clear the graph and keep only the selected event node (no author node)
   graphStore.setGraphData({
-    nodes,
-    edges
+    nodes: [selectedNode],
+    edges: []
   })
   
   showMessage('Investigation started from this event. Use expansion options to build the graph.', 'success', 5000)
