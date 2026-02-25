@@ -1584,6 +1584,9 @@ const originalGraphData = ref<{ nodes: any[]; edges: any[] } | null>(null); // K
 const selectedCardId = ref<string | null>(null); // Currently selected card for scrolling
 const selectedCollapsedNodeId = ref<string | null>(null); // Currently selected collapsed node for visual feedback
 
+// Multi-selection state (synced with G6's selection state)
+const selectedNodeIds = ref<Set<string>>(new Set()); // Multiple selected nodes
+
 // Animation state
 const isAnimating = ref(true);
 
@@ -2525,6 +2528,94 @@ function showContextMenu(
   actions: Array<{ label: string; icon: string; handler: () => void }>
 ) {
   contextMenu.value = { show: true, x, y, title, actions };
+}
+
+// Show multi-selection context menu
+function showMultiSelectionContextMenu(x: number, y: number) {
+  const count = selectedNodeIds.value.size;
+
+  // Count node types in selection
+  let authorCount = 0;
+  let eventCount = 0;
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData?.data?.type === "pubkey") {
+      authorCount++;
+    } else {
+      eventCount++;
+    }
+  });
+
+  const actions = [
+    {
+      label: `Expand all (${count} nodes)`,
+      icon: "mdi-arrow-expand-all",
+      handler: () => {
+        expandAllSelected();
+        contextMenu.value.show = false;
+      },
+    },
+    {
+      label: `Collapse all (${count} nodes)`,
+      icon: "mdi-arrow-collapse-all",
+      handler: () => {
+        collapseAllSelected();
+        contextMenu.value.show = false;
+      },
+    },
+  ];
+
+  // Add author-specific actions if any authors are selected
+  if (authorCount > 0) {
+    actions.push(
+      {
+        label: `Expand posts (${authorCount} authors)`,
+        icon: "mdi-post-outline",
+        handler: () => {
+          expandPostsBySelectedAuthors();
+          contextMenu.value.show = false;
+        },
+      },
+      {
+        label: `Expand articles (${authorCount} authors)`,
+        icon: "mdi-book-open",
+        handler: () => {
+          expandArticlesBySelectedAuthors();
+          contextMenu.value.show = false;
+        },
+      },
+      {
+        label: `Expand network (${authorCount} authors)`,
+        icon: "mdi-account-group",
+        handler: () => {
+          expandNetworkForSelectedAuthors();
+          contextMenu.value.show = false;
+        },
+      }
+    );
+  }
+
+  actions.push(
+    {
+      label: `Copy all IDs (${count})`,
+      icon: "mdi-content-copy",
+      handler: () => {
+        copySelectedIds();
+        contextMenu.value.show = false;
+      },
+    },
+    {
+      label: `Remove all (${count} nodes)`,
+      icon: "mdi-delete",
+      handler: () => {
+        removeAllSelected();
+        contextMenu.value.show = false;
+      },
+    }
+  );
+
+  const title = `${count} nodes selected${authorCount > 0 ? ` (${authorCount} authors, ${eventCount} events)` : ''}`;
+  showContextMenu(x, y, title, actions);
 }
 
 // Make a node the root for tree layouts
@@ -3859,6 +3950,13 @@ watch(
   { deep: true }
 );
 
+// Handle Escape key to clear selection
+function handleEscapeKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && selectedNodeIds.value.size > 0) {
+    clearSelection();
+  }
+}
+
 onMounted(() => {
   if (!graphRef.value) return;
 
@@ -3875,7 +3973,36 @@ onMounted(() => {
       duration: 300, // Faster transitions (default is 500ms)
     },
 
-    behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
+    behaviors: [
+      "drag-canvas",
+      "zoom-canvas",
+      {
+        type: "drag-element",
+        enable: (event: any) => {
+          // Only allow dragging when shift is NOT held (shift is for selection)
+          return !event.shiftKey;
+        },
+      },
+      {
+        type: "click-select",
+        multiple: true,
+        trigger: ["shift"],
+        state: "selected",
+      },
+      {
+        type: "brush-select",
+        trigger: ["shift"], // Shift+drag to brush-select
+        immediately: true, // Select as box encloses elements
+        state: "selected",
+        mode: "union", // Add to existing selection instead of replacing
+        style: {
+          fill: "rgba(59, 130, 246, 0.1)",
+          stroke: "#3b82f6",
+          lineWidth: 2,
+          lineDash: [4, 4],
+        },
+      },
+    ],
 
     node: {
       type: "html",
@@ -3895,6 +4022,14 @@ onMounted(() => {
           return -height / 2;
         },
         innerHTML: (d: any) => renderEventNode(d),
+      },
+      state: {
+        selected: {
+          halo: true,
+          haloStroke: "#10b981",
+          haloStrokeWidth: 8,
+          haloOpacity: 0.5,
+        },
       },
     },
 
@@ -3936,6 +4071,11 @@ onMounted(() => {
   graph.on("node:click", (evt: any) => {
     const nodeId = evt.target?.id || evt.item?.id;
     if (!nodeId || nodeId === "__super_root__") return; // Ignore virtual root
+
+    // If shift is held, let G6's click-select behavior handle it
+    if (evt.shiftKey) {
+      return;
+    }
 
     console.log("[Node] Active node set to:", nodeId);
     activeNodeId.value = nodeId;
@@ -4009,6 +4149,7 @@ onMounted(() => {
     graphStore.selectNode(null);
     selectedCardId.value = null; // Deselect card when clicking on canvas
     selectedCollapsedNodeId.value = null; // Deselect collapsed node
+    clearSelection(); // Clear multi-selection
   });
 
   // Close button click (DOM event delegation)
@@ -4108,6 +4249,20 @@ onMounted(() => {
     e.preventDefault();
 
     const target = e.target as HTMLElement;
+
+    // Check if we have multiple nodes selected
+    if (selectedNodeIds.value.size > 1) {
+      // Check if right-clicking on a selected node
+      const clickedNode = target.closest('.node-circle[data-item-id], .event-node.expanded[data-item-id]');
+      if (clickedNode) {
+        const nodeId = clickedNode.getAttribute('data-item-id');
+        if (nodeId && selectedNodeIds.value.has(nodeId)) {
+          // Show multi-selection context menu
+          showMultiSelectionContextMenu(e.clientX, e.clientY);
+          return;
+        }
+      }
+    }
 
     // Check if right-clicking on a stat (reactions, replies, etc.)
     const stat = target.closest('[data-role^="stat-"]');
@@ -4676,6 +4831,50 @@ onMounted(() => {
   // Handle window resize
   window.addEventListener("resize", handleResize);
 
+  // Listen to G6 selection events to sync with our state
+  graph.on("afteritemselected", (_evt: any) => {
+    // Sync selectedNodeIds for batch operations menu
+    if (!graph) return;
+
+    const allNodes = graphData.value.nodes;
+    if (!allNodes) return;
+
+    const selected = new Set<string>();
+
+    allNodes.forEach((node: any) => {
+      const state = graph?.getElementState(node.id);
+      if (state && state.includes('selected')) {
+        selected.add(node.id);
+      }
+    });
+
+    selectedNodeIds.value = selected;
+    console.log("[Selection] Nodes selected:", selected.size);
+  });
+
+  graph.on("afteritemsunselected", (_evt: any) => {
+    // Sync selectedNodeIds for batch operations menu
+    if (!graph) return;
+
+    const allNodes = graphData.value.nodes;
+    if (!allNodes) return;
+
+    const selected = new Set<string>();
+
+    allNodes.forEach((node: any) => {
+      const state = graph?.getElementState(node.id);
+      if (state && state.includes('selected')) {
+        selected.add(node.id);
+      }
+    });
+
+    selectedNodeIds.value = selected;
+    console.log("[Selection] Nodes after unselect:", selected.size);
+  });
+
+  // Set up Escape key handler to clear selection
+  window.addEventListener("keydown", handleEscapeKey);
+
   // Restore last active investigation if available
   (async () => {
     const lastStateId = getLastActiveState();
@@ -4702,6 +4901,7 @@ onUnmounted(() => {
     graph.destroy();
   }
   window.removeEventListener("resize", handleResize);
+  window.removeEventListener("keydown", handleEscapeKey);
 });
 
 // Watch for layout changes
@@ -4977,6 +5177,201 @@ watch(selectedCollapsedNodeId, (newNodeId, oldNodeId) => {
     }
   }
 });
+
+// Clear multi-selection using G6 API
+function clearSelection() {
+  if (!graph) return;
+
+  // Clear state for all selected nodes
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const state = graph?.getElementState(nodeId);
+    if (state && state.includes('selected')) {
+      graph?.setElementState(nodeId, 'selected', false);
+    }
+  });
+
+  selectedNodeIds.value.clear();
+  console.log("[Selection] Cleared");
+}
+
+// Batch operations for multi-selection
+async function expandAllSelected() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  console.log("[Batch] Expanding", selectedNodeIds.value.size, "nodes");
+
+  const updates: any[] = [];
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData && !nodeData.data?.expanded) {
+      // Only expand if has profile or event data
+      if (nodeData.data?.type === "pubkey" && !nodeData.data?.profile) return;
+      if (nodeData.data?.type !== "pubkey" && !nodeData.data?.event) return;
+
+      updates.push({
+        ...nodeData,
+        data: {
+          ...nodeData.data,
+          expanded: true,
+        },
+        style: {
+          ...nodeData.style,
+          size: [400, 300],
+          dx: -200,
+          dy: -150,
+        },
+      });
+    }
+  });
+
+  if (updates.length > 0) {
+    graph.updateNodeData(updates);
+    graph.render();
+    showMessage(`Expanded ${updates.length} nodes`, "success");
+  }
+}
+
+async function collapseAllSelected() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  console.log("[Batch] Collapsing", selectedNodeIds.value.size, "nodes");
+
+  const updates: any[] = [];
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData && nodeData.data?.expanded) {
+      updates.push({
+        ...nodeData,
+        data: {
+          ...nodeData.data,
+          expanded: false,
+        },
+        style: {
+          ...nodeData.style,
+          size: [60, 60],
+          dx: -30,
+          dy: -30,
+        },
+      });
+    }
+  });
+
+  if (updates.length > 0) {
+    graph.updateNodeData(updates);
+    graph.render();
+    showMessage(`Collapsed ${updates.length} nodes`, "success");
+  }
+}
+
+async function expandPostsBySelectedAuthors() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  const pubkeys: string[] = [];
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData?.data?.type === "pubkey" && typeof nodeData.data.pubkey === 'string') {
+      pubkeys.push(nodeData.data.pubkey);
+    }
+  });
+
+  if (pubkeys.length === 0) {
+    showMessage("No author nodes selected", "warning");
+    return;
+  }
+
+  console.log("[Batch] Expanding posts for", pubkeys.length, "authors");
+  showMessage(`Expanding posts for ${pubkeys.length} authors...`, "info");
+
+  for (const pubkey of pubkeys) {
+    await expandAuthorPosts(pubkey);
+  }
+}
+
+async function expandArticlesBySelectedAuthors() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  const pubkeys: string[] = [];
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData?.data?.type === "pubkey" && typeof nodeData.data.pubkey === 'string') {
+      pubkeys.push(nodeData.data.pubkey);
+    }
+  });
+
+  if (pubkeys.length === 0) {
+    showMessage("No author nodes selected", "warning");
+    return;
+  }
+
+  console.log("[Batch] Expanding articles for", pubkeys.length, "authors");
+  showMessage(`Expanding articles for ${pubkeys.length} authors...`, "info");
+
+  for (const pubkey of pubkeys) {
+    await expandAuthorArticles(pubkey);
+  }
+}
+
+async function expandNetworkForSelectedAuthors() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  const pubkeys: string[] = [];
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData?.data?.type === "pubkey" && typeof nodeData.data.pubkey === 'string') {
+      pubkeys.push(nodeData.data.pubkey);
+    }
+  });
+
+  if (pubkeys.length === 0) {
+    showMessage("No author nodes selected", "warning");
+    return;
+  }
+
+  console.log("[Batch] Expanding network for", pubkeys.length, "authors");
+  showMessage(`Expanding network for ${pubkeys.length} authors...`, "info");
+
+  for (const pubkey of pubkeys) {
+    await expandAuthorNetwork(pubkey);
+  }
+}
+
+async function removeAllSelected() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  const count = selectedNodeIds.value.size;
+  console.log("[Batch] Removing", count, "nodes");
+
+  // Convert to array to avoid modification during iteration
+  const nodesToRemove = Array.from(selectedNodeIds.value);
+  for (const nodeId of nodesToRemove) {
+    removeNode(nodeId);
+  }
+
+  clearSelection();
+  showMessage(`Removed ${count} nodes`, "success");
+}
+
+async function copySelectedIds() {
+  if (!graph || selectedNodeIds.value.size === 0) return;
+
+  const ids: string[] = [];
+  selectedNodeIds.value.forEach((nodeId: string) => {
+    const nodeData = graph?.getNodeData(nodeId);
+    if (nodeData) {
+      if (nodeData.data?.type === "pubkey" && typeof nodeData.data.pubkey === 'string') {
+        ids.push(nodeData.data.pubkey);
+      } else if (nodeData.data?.event && typeof (nodeData.data.event as any).id === 'string') {
+        ids.push((nodeData.data.event as any).id);
+      } else {
+        ids.push(nodeId);
+      }
+    }
+  });
+
+  const text = ids.join('\n');
+  await navigator.clipboard.writeText(text);
+  showMessage(`Copied ${ids.length} IDs to clipboard`, "success");
+}
 
 function handleResize() {
   if (graph && graphRef.value) {
@@ -6453,5 +6848,18 @@ defineExpose({
 .v-theme--dark .relay-error {
   color: #ef5350;
   background: rgba(239, 83, 80, 0.15);
+}
+
+/* Multi-selection rectangle overlay */
+/* Multi-selected nodes */
+:deep(.node-circle.multi-selected),
+:deep(.event-node.multi-selected) {
+  border: 3px solid #10b981 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3), 0 4px 12px rgba(16, 185, 129, 0.25) !important;
+}
+
+:deep(.node-circle.multi-selected) {
+  transform: scale(1.05);
+  z-index: 10;
 }
 </style>
