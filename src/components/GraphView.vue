@@ -1582,6 +1582,7 @@ const activeNodeId = ref<string | null>(null); // Currently active/selected node
 const treeRootId = ref<string | null>(null); // Root node for tree layouts
 const originalGraphData = ref<{ nodes: any[]; edges: any[] } | null>(null); // Keep original graph data
 const selectedCardId = ref<string | null>(null); // Currently selected card for scrolling
+const selectedCollapsedNodeId = ref<string | null>(null); // Currently selected collapsed node for visual feedback
 
 // Animation state
 const isAnimating = ref(true);
@@ -1899,7 +1900,7 @@ function renderEventNode(d: any): string {
     const markerClass = getNodeMarkerClass(nodeId);
 
     return `
-      <div class="node-circle kind-${kind}${markerClass}" style="background: ${kindColor}; border: 3px solid ${kindColor};">
+      <div class="node-circle kind-${kind}${markerClass}" data-item-id="${nodeId}" style="background: ${kindColor}; border: 3px solid ${kindColor};">
         <span class="node-emoji">${emoji}</span>
       </div>
     `;
@@ -3939,6 +3940,15 @@ onMounted(() => {
     console.log("[Node] Active node set to:", nodeId);
     activeNodeId.value = nodeId;
     graphStore.selectNode(nodeId);
+
+    // Check if node is collapsed and select it for visual feedback
+    const nodeData = graph.getNodeData(nodeId);
+    if (nodeData && !nodeData.data?.expanded) {
+      selectedCollapsedNodeId.value = nodeId;
+      console.log("[Node] Selected collapsed node:", nodeId);
+    } else {
+      selectedCollapsedNodeId.value = null; // Deselect if expanded
+    }
   });
 
   // Double-click to expand/collapse node
@@ -3983,9 +3993,11 @@ onMounted(() => {
     nextTick(() => {
       if (expanded) {
         selectedCardId.value = nodeId;
+        selectedCollapsedNodeId.value = null; // Clear collapsed selection when expanding
         console.log("[Card] Auto-selected card after expand:", nodeId);
       } else {
         selectedCardId.value = null; // Deselect when collapsing
+        selectedCollapsedNodeId.value = nodeId; // Select collapsed node
       }
     });
 
@@ -3996,6 +4008,7 @@ onMounted(() => {
   graph.on("canvas:click", () => {
     graphStore.selectNode(null);
     selectedCardId.value = null; // Deselect card when clicking on canvas
+    selectedCollapsedNodeId.value = null; // Deselect collapsed node
   });
 
   // Close button click (DOM event delegation)
@@ -4143,6 +4156,11 @@ onMounted(() => {
             handler: () => filterByAuthor(pubkey),
           },
           {
+            label: "Start investigation from here",
+            icon: "mdi-target",
+            handler: () => startInvestigation(nodeId),
+          },
+          {
             label: "Make tree root",
             icon: "mdi-tree",
             handler: () => makeTreeRoot(nodeId),
@@ -4182,6 +4200,11 @@ onMounted(() => {
             handler: () => highlightByTag(tag),
           },
           {
+            label: "Start investigation from here",
+            icon: "mdi-target",
+            handler: () => startInvestigation(nodeId),
+          },
+          {
             label: "Make tree root",
             icon: "mdi-tree",
             handler: () => makeTreeRoot(nodeId),
@@ -4194,6 +4217,107 @@ onMounted(() => {
         ];
         showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, actions);
         return;
+      }
+    }
+
+    // Check if clicking on a collapsed event node (kind-X circle)
+    const eventNodeEl = target.closest(".node-circle[data-item-id]:not(.pubkey-node):not(.tag-node)");
+    if (eventNodeEl) {
+      const nodeId = eventNodeEl.getAttribute("data-item-id");
+
+      if (nodeId) {
+        const nodeData = graph?.getNodeData(nodeId);
+
+        // Only show menu if node is collapsed
+        if (nodeData && !nodeData.data?.expanded) {
+          const event = nodeData.data?.event as any; // Nostr event
+          const isExpanded = nodeData.data?.expanded || false;
+
+          const actions = [
+            {
+              label: isExpanded ? "Collapse card" : "Expand card",
+              icon: isExpanded ? "mdi-arrow-collapse" : "mdi-arrow-expand",
+              handler: () => {
+                // Simulate double-click to toggle expansion
+                graph?.emit("node:dblclick", { item: { id: nodeId }, target: { id: nodeId } });
+              },
+            },
+          ];
+
+          if (event) {
+            // Get author pubkey
+            const authorPubkey = event.pubkey as string;
+
+            actions.push(
+              {
+                label: "Expand author profile",
+                icon: "mdi-account-details",
+                handler: () => expandAuthorProfile(authorPubkey),
+              },
+              {
+                label: "Expand all posts by author",
+                icon: "mdi-post-outline",
+                handler: () => expandAuthorPosts(authorPubkey),
+              }
+            );
+
+            // Add stat expansion options
+            actions.push(
+              {
+                label: "Expand replies",
+                icon: "mdi-comment",
+                handler: () => handleExpandStat(nodeId, "replies"),
+              },
+              {
+                label: "Expand reactions",
+                icon: "mdi-heart",
+                handler: () => handleExpandStat(nodeId, "reactions"),
+              },
+              {
+                label: "Expand reposts",
+                icon: "mdi-repeat",
+                handler: () => handleExpandStat(nodeId, "reposts"),
+              }
+            );
+
+            // Copy event ID/link
+            actions.push({
+              label: "Copy event ID",
+              icon: "mdi-content-copy",
+              handler: async () => {
+                try {
+                  await navigator.clipboard.writeText(event.id as string);
+                  showMessage("Event ID copied to clipboard", "success");
+                } catch (err) {
+                  console.error("Failed to copy:", err);
+                  showMessage("Failed to copy event ID", "error");
+                }
+              },
+            });
+          }
+
+          actions.push(
+            {
+              label: "Start investigation from here",
+              icon: "mdi-target",
+              handler: () => startInvestigation(nodeId),
+            },
+            {
+              label: "Make tree root",
+              icon: "mdi-tree",
+              handler: () => makeTreeRoot(nodeId),
+            },
+            {
+              label: "Remove from graph",
+              icon: "mdi-delete",
+              handler: () => removeNode(nodeId),
+            }
+          );
+
+          const kindLabel = event ? `Event (kind ${event.kind})` : "Event";
+          showContextMenu(e.clientX, e.clientY, kindLabel, actions);
+          return;
+        }
       }
     }
 
@@ -4225,11 +4349,23 @@ onMounted(() => {
         ];
 
         if (nodeId) {
-          actions.push({
-            label: "Remove this node",
-            icon: "mdi-delete",
-            handler: () => removeNode(nodeId),
-          });
+          actions.push(
+            {
+              label: "Start investigation from here",
+              icon: "mdi-target",
+              handler: () => startInvestigation(nodeId),
+            },
+            {
+              label: "Make tree root",
+              icon: "mdi-tree",
+              handler: () => makeTreeRoot(nodeId),
+            },
+            {
+              label: "Remove this node",
+              icon: "mdi-delete",
+              handler: () => removeNode(nodeId),
+            }
+          );
         }
 
         showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, actions);
@@ -4270,11 +4406,23 @@ onMounted(() => {
         ];
 
         if (nodeId) {
-          actions.push({
-            label: "Remove this node",
-            icon: "mdi-delete",
-            handler: () => removeNode(nodeId),
-          });
+          actions.push(
+            {
+              label: "Start investigation from here",
+              icon: "mdi-target",
+              handler: () => startInvestigation(nodeId),
+            },
+            {
+              label: "Make tree root",
+              icon: "mdi-tree",
+              handler: () => makeTreeRoot(nodeId),
+            },
+            {
+              label: "Remove this node",
+              icon: "mdi-delete",
+              handler: () => removeNode(nodeId),
+            }
+          );
         }
 
         showContextMenu(e.clientX, e.clientY, `User ${pubkey.slice(0, 8)}...`, actions);
@@ -4320,11 +4468,23 @@ onMounted(() => {
         ];
 
         if (nodeId) {
-          actions.push({
-            label: "Remove this node",
-            icon: "mdi-delete",
-            handler: () => removeNode(nodeId),
-          });
+          actions.push(
+            {
+              label: "Start investigation from here",
+              icon: "mdi-target",
+              handler: () => startInvestigation(nodeId),
+            },
+            {
+              label: "Make tree root",
+              icon: "mdi-tree",
+              handler: () => makeTreeRoot(nodeId),
+            },
+            {
+              label: "Remove this node",
+              icon: "mdi-delete",
+              handler: () => removeNode(nodeId),
+            }
+          );
         }
 
         showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, actions);
@@ -4726,6 +4886,31 @@ watch(selectedCardId, (newCardId, oldCardId) => {
           console.warn("[Card] Could not find card element after delay:", newCardId);
         }
       }, 50);
+    }
+  }
+});
+
+// Watch for selected collapsed node changes to update CSS classes
+watch(selectedCollapsedNodeId, (newNodeId, oldNodeId) => {
+  if (!graphRef.value) return;
+
+  // Remove selected class from previous node
+  if (oldNodeId) {
+    const oldNode = graphRef.value.querySelector(`.node-circle[data-item-id="${oldNodeId}"]`);
+    if (oldNode) {
+      oldNode.classList.remove("selected-collapsed");
+      console.log("[Node] Removed selected-collapsed class from:", oldNodeId);
+    }
+  }
+
+  // Add selected class to new node
+  if (newNodeId) {
+    const newNode = graphRef.value.querySelector(`.node-circle[data-item-id="${newNodeId}"]`);
+    if (newNode) {
+      newNode.classList.add("selected-collapsed");
+      console.log("[Node] Applied selected-collapsed class to:", newNodeId, "- type:", newNode.className);
+    } else {
+      console.warn("[Node] Could not find node to select:", newNodeId);
     }
   }
 });
@@ -5336,6 +5521,14 @@ defineExpose({
 :deep(.node-circle.pubkey-node.with-picture:hover) {
   transform: scale(1.1);
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+/* Selected collapsed node state */
+:deep(.node-circle.selected-collapsed) {
+  border: 3px solid #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3), 0 4px 12px rgba(59, 130, 246, 0.25) !important;
+  transform: scale(1.05);
+  z-index: 10;
 }
 
 :deep(.profile-picture) {
