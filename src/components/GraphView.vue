@@ -5,63 +5,6 @@
     <!-- Graph controls -->
     <div class="graph-controls">
       <v-card class="pa-2" style="min-width: 280px; max-height: 90vh; overflow-y: auto">
-        <!-- Investigation Name -->
-        <div class="d-flex align-center gap-1 mb-2">
-          <v-chip
-            v-if="!isEditingName"
-            color="primary"
-            variant="flat"
-            prepend-icon="mdi-file-document"
-            @click="startRenaming"
-            style="cursor: pointer; flex: 1"
-            :title="'Click to rename'"
-          >
-            {{ currentInvestigationName }}
-          </v-chip>
-          <v-text-field
-            v-else
-            v-model="currentInvestigationName"
-            density="compact"
-            hide-details
-            autofocus
-            @blur="finishRenaming"
-            @keyup.enter="finishRenaming"
-            style="flex: 1"
-          ></v-text-field>
-          <v-tooltip location="bottom">
-            <template #activator="{ props }">
-              <v-btn
-                v-bind="props"
-                size="small"
-                icon="mdi-content-save"
-                variant="tonal"
-                color="success"
-                @click="saveCurrentInvestigation"
-                :title="'Save current investigation'"
-              ></v-btn>
-            </template>
-            <span>Save</span>
-          </v-tooltip>
-          <v-tooltip location="bottom">
-            <template #activator="{ props }">
-              <v-btn
-                v-bind="props"
-                size="small"
-                icon="mdi-reload"
-                variant="tonal"
-                @click="
-                  savedStatesDialog = true;
-                  loadSavedStates();
-                "
-                :title="'Manage saved investigations'"
-              ></v-btn>
-            </template>
-            <span>Manage Saved</span>
-          </v-tooltip>
-        </div>
-
-        <v-divider class="mb-2"></v-divider>
-
         <!-- Search Bar -->
         <v-text-field
           v-model="searchQuery"
@@ -1324,113 +1267,11 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-
-    <!-- Saved Investigations Dialog -->
-    <v-dialog v-model="savedStatesDialog" max-width="800">
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          <v-icon class="mr-2">mdi-bookmark-multiple</v-icon>
-          Saved Investigations
-          <v-spacer></v-spacer>
-          <v-btn
-            size="small"
-            variant="tonal"
-            prepend-icon="mdi-plus"
-            @click="
-              createNewInvestigation();
-              savedStatesDialog = false;
-            "
-            class="mr-2"
-          >
-            New
-          </v-btn>
-          <v-btn
-            size="small"
-            variant="tonal"
-            prepend-icon="mdi-import"
-            @click="importInvestigation()"
-          >
-            Import
-          </v-btn>
-        </v-card-title>
-
-        <v-card-text style="max-height: 60vh; overflow-y: auto">
-          <v-progress-linear v-if="loadingStates" indeterminate></v-progress-linear>
-
-          <div v-if="savedStates.length === 0 && !loadingStates" class="text-center py-8">
-            <v-icon size="64" color="grey-lighten-1">mdi-bookmark-off</v-icon>
-            <div class="text-h6 mt-4 text-grey">No saved investigations yet</div>
-            <div class="text-body-2 text-grey">
-              Your investigation will be auto-saved as you work
-            </div>
-          </div>
-
-          <v-list v-else lines="two">
-            <v-list-item
-              v-for="state in savedStates"
-              :key="state.id"
-              :active="state.id === currentInvestigationId"
-              @click="restoreInvestigation(state.id)"
-              class="mb-2"
-            >
-              <template #prepend>
-                <v-icon :color="state.id === currentInvestigationId ? 'primary' : 'grey'">
-                  {{
-                    state.id === currentInvestigationId
-                      ? "mdi-bookmark-check"
-                      : "mdi-bookmark"
-                  }}
-                </v-icon>
-              </template>
-
-              <v-list-item-title>{{ state.name }}</v-list-item-title>
-              <v-list-item-subtitle>
-                {{ state.graphData.nodes.length }} nodes,
-                {{ state.graphData.edges.length }} edges • {{ state.layoutType }} layout •
-                {{ new Date(state.updatedAt).toLocaleString() }}
-              </v-list-item-subtitle>
-
-              <template #append>
-                <div class="d-flex gap-1">
-                  <v-btn
-                    size="x-small"
-                    icon="mdi-content-copy"
-                    variant="text"
-                    @click.stop="duplicateInvestigation(state.id)"
-                    :title="'Duplicate'"
-                  ></v-btn>
-                  <v-btn
-                    size="x-small"
-                    icon="mdi-export"
-                    variant="text"
-                    @click.stop="exportInvestigation(state.id)"
-                    :title="'Export to file'"
-                  ></v-btn>
-                  <v-btn
-                    size="x-small"
-                    icon="mdi-delete"
-                    variant="text"
-                    color="error"
-                    @click.stop="deleteInvestigation(state.id)"
-                    :title="'Delete'"
-                  ></v-btn>
-                </div>
-              </template>
-            </v-list-item>
-          </v-list>
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn @click="savedStatesDialog = false">Close</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 import { Graph, treeToGraphData } from "@antv/g6";
 import { useGraphStore } from "../stores/graph";
 import { useEventFetcher } from "../composables/useEventFetcher";
@@ -4134,6 +3975,20 @@ onMounted(() => {
     graph.updateNodeData([updated]);
     graph.render();
 
+    // Set as active node and select card so user can scroll immediately
+    activeNodeId.value = nodeId;
+    graphStore.selectNode(nodeId);
+
+    // Wait for DOM to update before applying selected class
+    nextTick(() => {
+      if (expanded) {
+        selectedCardId.value = nodeId;
+        console.log("[Card] Auto-selected card after expand:", nodeId);
+      } else {
+        selectedCardId.value = null; // Deselect when collapsing
+      }
+    });
+
     // No need to rerun layout - space is always reserved for card size
   });
 
@@ -4786,7 +4641,7 @@ watch(
 watch(selectedCardId, (newCardId, oldCardId) => {
   if (!graphRef.value) return;
 
-  // Remove selected class from previous card
+  // Remove selected class from previous card immediately
   if (oldCardId) {
     const oldCard = graphRef.value.querySelector(`[data-item-id="${oldCardId}"]`);
     if (oldCard) {
@@ -4796,9 +4651,24 @@ watch(selectedCardId, (newCardId, oldCardId) => {
 
   // Add selected class to new card
   if (newCardId) {
-    const newCard = graphRef.value.querySelector(`[data-item-id="${newCardId}"]`);
-    if (newCard) {
-      newCard.classList.add("selected");
+    const tryAddClass = () => {
+      const newCard = graphRef.value?.querySelector(`[data-item-id="${newCardId}"]`);
+      if (newCard) {
+        newCard.classList.add("selected");
+        console.log("[Card] Applied selected class to:", newCardId);
+        return true;
+      }
+      return false;
+    };
+
+    // Try immediately first (for already expanded cards)
+    if (!tryAddClass()) {
+      // If not found, wait for G6 to render (for newly expanded cards)
+      setTimeout(() => {
+        if (!tryAddClass()) {
+          console.warn("[Card] Could not find card element after delay:", newCardId);
+        }
+      }, 50);
     }
   }
 });
@@ -5289,6 +5159,28 @@ function startRenaming() {
 function finishRenaming() {
   isEditingName.value = false;
 }
+
+// Expose investigation state and functions for parent component (App.vue)
+defineExpose({
+  // State
+  currentInvestigationId,
+  currentInvestigationName,
+  isEditingName,
+  savedStatesDialog,
+  savedStates,
+  loadingStates,
+  // Functions
+  saveCurrentInvestigation,
+  loadSavedStates,
+  restoreInvestigation,
+  deleteInvestigation,
+  duplicateInvestigation,
+  exportInvestigation,
+  importInvestigation,
+  createNewInvestigation,
+  startRenaming,
+  finishRenaming,
+});
 </script>
 
 <style scoped>
