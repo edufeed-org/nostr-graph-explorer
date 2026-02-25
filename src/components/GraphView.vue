@@ -4609,6 +4609,7 @@ watch(layoutMode, (newLayout, oldLayout) => {
 watch(
   graphData,
   (newData) => {
+    console.log("[Watch] Graph data changed, nodes:", newData.nodes?.length, "edges:", newData.edges?.length);
     if (graph) {
       graph.setData(newData);
       graph.render();
@@ -4620,6 +4621,62 @@ watch(
       if (!isTreeLayout(layoutMode.value)) {
         console.log("[Data] Graph data changed, resetting originalGraphData cache");
         originalGraphData.value = null;
+      }
+
+      // Check for pending restore (e.g., after loading investigation)
+      const pendingRestore = (window as any).__pendingRestore;
+      if (pendingRestore) {
+        console.log("[Restore] Applying pending expanded cards:", pendingRestore.expandedCardIds);
+
+        // Clear pending restore flag immediately to prevent duplicate processing
+        delete (window as any).__pendingRestore;
+
+        // Wait for graph to fully render before restoring expanded cards
+        setTimeout(() => {
+          if (!graph) return;
+
+          // Restore expanded cards
+          if (pendingRestore.expandedCardIds && pendingRestore.expandedCardIds.length > 0) {
+            const nodeUpdates: any[] = [];
+
+            pendingRestore.expandedCardIds.forEach((nodeId: string) => {
+              const nodeData = graph.getNodeData(nodeId);
+              if (nodeData) {
+                console.log("[Restore] Expanding node:", nodeId);
+                nodeUpdates.push({
+                  ...nodeData,
+                  data: {
+                    ...nodeData.data,
+                    expanded: true,
+                  },
+                  style: {
+                    ...nodeData.style,
+                    size: [400, 300],
+                    dx: -200,
+                    dy: -150,
+                  },
+                });
+              } else {
+                console.warn("[Restore] Node not found:", nodeId);
+              }
+            });
+
+            if (nodeUpdates.length > 0) {
+              graph.updateNodeData(nodeUpdates);
+              graph.render();
+              console.log("[Restore] Restored", nodeUpdates.length, "expanded cards");
+            }
+          }
+
+          // Restore zoom
+          if (pendingRestore.zoom) {
+            try {
+              graph.zoomTo(pendingRestore.zoom, { x: 0, y: 0 });
+            } catch (e) {
+              console.warn("[Restore] Could not restore zoom:", e);
+            }
+          }
+        }, 100);
       }
     }
   },
@@ -4929,13 +4986,19 @@ async function handleExpand(eventId: string) {
  * Capture current graph state
  */
 function captureCurrentState(): Omit<GraphState, "id" | "createdAt" | "updatedAt"> {
-  // Get expanded card IDs
+  // Get expanded card IDs from the actual graph (not from store)
   const expandedCardIds: string[] = [];
-  graphStore.nodes.forEach((node: any) => {
-    if (node.data?.expanded) {
-      expandedCardIds.push(node.id);
-    }
-  });
+  if (graph) {
+    // Iterate through all nodes and check their current state in the graph
+    graphStore.nodes.forEach((node: any) => {
+      const nodeData = graph.getNodeData(node.id);
+      if (nodeData?.data?.expanded) {
+        expandedCardIds.push(node.id);
+        console.log("[Save] Found expanded card:", node.id);
+      }
+    });
+  }
+  console.log("[Save] Total expanded cards:", expandedCardIds.length);
 
   // Get camera position if available
   let zoom = null;
@@ -5005,7 +5068,15 @@ async function restoreInvestigation(stateId: string) {
       return;
     }
 
-    // Restore graph data
+    // Set pending restore BEFORE changing graph data (so watch can pick it up)
+    (window as any).__pendingRestore = {
+      expandedCardIds: state.expandedCardIds,
+      zoom: state.zoom,
+      pan: state.pan,
+    };
+    console.log("[Restore] Set pending restore with expanded cards:", state.expandedCardIds);
+
+    // Restore graph data (this will trigger the watch)
     graphStore.setGraphData({
       nodes: state.graphData.nodes,
       edges: state.graphData.edges,
@@ -5022,14 +5093,6 @@ async function restoreInvestigation(stateId: string) {
     currentInvestigationId.value = state.id;
     currentInvestigationName.value = state.name;
     setLastActiveState(state.id);
-
-    // Note: expanded cards and zoom/pan will be restored after graph renders
-    // Store them temporarily
-    (window as any).__pendingRestore = {
-      expandedCardIds: state.expandedCardIds,
-      zoom: state.zoom,
-      pan: state.pan,
-    };
 
     showMessage(`Loaded "${state.name}"`, "success");
     savedStatesDialog.value = false;
