@@ -1844,7 +1844,7 @@ function renderEventNode(d: any): string {
       const nodeId = safe(d.id || "");
 
       return `
-        <div class="event-node expanded profile-card" data-item-id="${nodeId}">
+        <div class="event-node expanded profile-card" data-item-id="${nodeId}" data-pubkey="${pubkey}">
           <div class="event-titlebar" data-role="titlebar">
             <div class="event-left">
               <span class="event-badge">👤 Profile</span>
@@ -4488,6 +4488,69 @@ onMounted(() => {
         }
 
         showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, actions);
+        return;
+      }
+    }
+
+    // Check if clicking on an expanded profile card
+    const profileCardEl = target.closest(".profile-card[data-item-id][data-pubkey]");
+    if (profileCardEl) {
+      const nodeId = profileCardEl.getAttribute("data-item-id");
+      const pubkey = profileCardEl.getAttribute("data-pubkey");
+
+      if (nodeId && pubkey) {
+        const actions = [
+          {
+            label: "Expand all posts by author",
+            icon: "mdi-post-outline",
+            handler: () => expandAuthorPosts(pubkey),
+          },
+          {
+            label: "Expand blog articles (kind 30023)",
+            icon: "mdi-book-open",
+            handler: () => expandAuthorArticles(pubkey),
+          },
+          {
+            label: "Show followers/following",
+            icon: "mdi-account-group",
+            handler: () => expandAuthorNetwork(pubkey),
+          },
+          {
+            label: "Filter to show only this author",
+            icon: "mdi-filter",
+            handler: () => filterByAuthor(pubkey),
+          },
+          {
+            label: "Copy pubkey",
+            icon: "mdi-content-copy",
+            handler: async () => {
+              try {
+                await navigator.clipboard.writeText(pubkey);
+                showMessage("Pubkey copied to clipboard", "success");
+              } catch (err) {
+                console.error("Failed to copy:", err);
+                showMessage("Failed to copy pubkey", "error");
+              }
+            },
+          },
+          {
+            label: "Start investigation from here",
+            icon: "mdi-target",
+            handler: () => startInvestigation(nodeId),
+          },
+          {
+            label: "Make tree root",
+            icon: "mdi-tree",
+            handler: () => makeTreeRoot(nodeId),
+          },
+          {
+            label: "Remove this profile",
+            icon: "mdi-delete",
+            handler: () => removeNode(nodeId),
+          },
+        ];
+
+        showContextMenu(e.clientX, e.clientY, `Profile: ${pubkey.slice(0, 8)}...`, actions);
         return;
       }
     }
