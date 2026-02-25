@@ -1272,11 +1272,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
-import { Graph, treeToGraphData } from "@antv/g6";
+import { Graph } from "@antv/g6";
 import { useGraphStore } from "../stores/graph";
 import { useEventFetcher } from "../composables/useEventFetcher";
 import { useRelayManager } from "../composables/useRelayManager";
 import { useNostr } from "../composables/useNostr";
+import { parseNostrQuery } from "../tools/nostr-dsl";
 import { storeToRefs } from "pinia";
 import MarkdownIt from "markdown-it";
 import {
@@ -2161,112 +2162,93 @@ function findBestRoot(nodes: any[], edges: any[]): string | null {
   return bestNode.id;
 }
 
-// Convert graph data to tree data structure
-// Format: { id: string, children: [ { id: string, children: [...] } ] }
-function convertGraphToTree(nodes: any[], edges: any[], rootId: string): any {
-  console.log(
-    "[Tree] Converting graph to tree, root:",
-    rootId,
-    "nodes:",
-    nodes.length,
-    "edges:",
-    edges.length
-  );
+// Convert graph data to tree-compatible format for G6 layouts
+// This is much faster than convertGraphToTree + treeToGraphData
+// because it directly adds children and depth properties without building nested structure
+function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: any[], edges: any[] } {
+  console.log("[Tree] Preparing tree data with root:", rootId, "nodes:", nodes.length, "edges:", edges.length);
 
-  // Build adjacency map: parent -> children
-  const childrenMap = new Map<string, any[]>();
-
+  // Build adjacency map: parent -> children IDs
+  const childrenMap = new Map<string, string[]>();
   edges.forEach((edge) => {
-    const parent = edge.source;
-    const child = edge.target;
-
-    if (!childrenMap.has(parent)) {
-      childrenMap.set(parent, []);
+    if (!childrenMap.has(edge.source)) {
+      childrenMap.set(edge.source, []);
     }
-    childrenMap.get(parent)!.push(nodes.find((n) => n.id === child));
+    childrenMap.get(edge.source)!.push(edge.target);
   });
 
-  // Recursively build tree (simple format - just id and children)
-  function buildTreeNode(nodeId: string, visited = new Set<string>()): any {
-    // Prevent cycles
-    if (visited.has(nodeId)) {
-      console.log("[Tree] Cycle detected at node:", nodeId);
-      return null;
-    }
-    visited.add(nodeId);
+  // Calculate depth for each node using BFS from root
+  const depthMap = new Map<string, number>();
+  const queue: Array<{ id: string; depth: number }> = [{ id: rootId, depth: 0 }];
+  const visited = new Set<string>();
 
-    const node = nodes.find((n) => n.id === nodeId);
-    if (!node) return null;
+  while (queue.length > 0) {
+    const { id, depth } = queue.shift()!;
+    
+    if (visited.has(id)) continue; // Prevent cycles
+    visited.add(id);
+    depthMap.set(id, depth);
 
-    const children = childrenMap.get(nodeId) || [];
-    const treeNode: any = {
-      id: node.id,
-      data: node.data, // Keep all node data for rendering
-    };
-
-    // Add children recursively
-    if (children.length > 0) {
-      treeNode.children = children
-        .map((child) => buildTreeNode(child.id, new Set(visited)))
-        .filter((child) => child !== null);
-    }
-
-    console.log(
-      "[Tree] Built node:",
-      treeNode.id,
-      "children:",
-      treeNode.children?.length || 0
-    );
-    return treeNode;
-  }
-
-  const tree = buildTreeNode(rootId);
-
-  // Handle disconnected graphs - find orphaned nodes
-  const visitedNodes = new Set<string>();
-
-  function collectVisited(node: any) {
-    if (!node) return;
-    visitedNodes.add(node.id);
-    if (node.children) {
-      node.children.forEach((child: any) => collectVisited(child));
-    }
-  }
-
-  collectVisited(tree);
-
-  const orphanedNodes = nodes.filter((n) => !visitedNodes.has(n.id));
-
-  if (orphanedNodes.length > 0) {
-    console.log(
-      "[Tree] Found",
-      orphanedNodes.length,
-      "orphaned nodes, creating super-tree"
-    );
-
-    // Create invisible super-root
-    const superTree = {
-      id: "__super_root__",
-      data: {
-        isVirtualRoot: true, // Mark as virtual so we can hide it
-      },
-      children: [tree],
-    };
-
-    // Add orphaned nodes as additional children of super-root
-    orphanedNodes.forEach((node) => {
-      const orphanTree = buildTreeNode(node.id);
-      if (orphanTree) {
-        superTree.children.push(orphanTree);
+    const children = childrenMap.get(id) || [];
+    children.forEach(childId => {
+      if (!visited.has(childId)) {
+        queue.push({ id: childId, depth: depth + 1 });
       }
     });
-
-    console.log("[Tree] Super-tree created with", superTree.children.length, "sub-trees");
-    return superTree;
   }
 
-  console.log("[Tree] Single connected tree created");
-  return tree;
+  // Handle orphaned nodes (not reachable from root)
+  const orphanedNodes: string[] = [];
+  nodes.forEach(node => {
+    if (!visited.has(node.id)) {
+      orphanedNodes.push(node.id);
+      depthMap.set(node.id, 0); // Treat as root level
+    }
+  });
+
+  // Create enriched nodes with children and depth properties
+  const enrichedNodes = nodes.map(node => ({
+    ...node,
+    children: childrenMap.get(node.id) || [],
+    depth: depthMap.get(node.id) ?? 0,
+  }));
+
+  // If we have orphaned nodes, create a virtual super-root
+  if (orphanedNodes.length > 0) {
+    console.log("[Tree] Found", orphanedNodes.length, "orphaned nodes, creating virtual super-root");
+    
+    // Add virtual root node
+    const superRoot = {
+      id: "__super_root__",
+      data: { isVirtualRoot: true },
+      children: [rootId, ...orphanedNodes],
+      depth: 0,
+    };
+
+    // Update depths: increment all by 1
+    enrichedNodes.forEach(node => {
+      node.depth = (node.depth ?? 0) + 1;
+    });
+
+    // Add super root to nodes
+    enrichedNodes.unshift(superRoot);
+
+    // Add edges from super root to main root and orphans
+    const superEdges = [
+      { source: "__super_root__", target: rootId },
+      ...orphanedNodes.map(id => ({ source: "__super_root__", target: id }))
+    ];
+
+    return {
+      nodes: enrichedNodes,
+      edges: [...edges, ...superEdges],
+    };
+  }
+
+  return {
+    nodes: enrichedNodes,
+    edges: edges,
+  };
 }
 
 // Helper: Get layout config based on layout type
@@ -2616,10 +2598,9 @@ function makeTreeRoot(nodeId: string) {
   if (isTreeLayout(layoutMode.value) && graph && originalGraphData.value) {
     const nodes = originalGraphData.value.nodes;
     const edges = originalGraphData.value.edges;
-    const treeData = convertGraphToTree(nodes, edges, nodeId);
-    const graphDataFromTree = treeToGraphData(treeData);
+    const treeData = prepareTreeData(nodes, edges, nodeId);
 
-    graph.setData(graphDataFromTree);
+    graph.setData(treeData);
     graph.layout();
     graph.render();
 
@@ -3642,7 +3623,12 @@ function performSearch() {
     return;
   }
 
-  const query = searchQuery.value.toLowerCase().trim();
+  const queryText = searchQuery.value.trim();
+  const parsedFilter = parseNostrQuery(queryText);
+  const searchText = parsedFilter.search?.toLowerCase() || "";
+  
+  console.log("[Local Search] Parsed filter:", parsedFilter);
+  
   const matchingNodeIds = new Set<string>();
 
   // Search through all nodes
@@ -3655,12 +3641,31 @@ function performSearch() {
         const profile = node.data?.profile;
         const name = profile?.name || profile?.display_name || "";
 
-        if (pubkey.toLowerCase().includes(query) || name.toLowerCase().includes(query)) {
+        // Check author filter
+        if (parsedFilter.authors && parsedFilter.authors.length > 0) {
+          if (parsedFilter.authors.some(a => pubkey.toLowerCase().includes(a.toLowerCase()))) {
+            matchingNodeIds.add(node.id);
+            return;
+          }
+        }
+
+        // Check search text
+        if (searchText && (pubkey.toLowerCase().includes(searchText) || name.toLowerCase().includes(searchText))) {
           matchingNodeIds.add(node.id);
         }
       } else if (node.data?.type === "tag") {
         const tag = node.data?.tag || "";
-        if (tag.toLowerCase().includes(query)) {
+        
+        // Check tag filter
+        if (parsedFilter['#t'] && parsedFilter['#t'].length > 0) {
+          if (parsedFilter['#t'].some((t: string) => tag.toLowerCase().includes(t.toLowerCase()))) {
+            matchingNodeIds.add(node.id);
+            return;
+          }
+        }
+        
+        // Check search text
+        if (searchText && tag.toLowerCase().includes(searchText)) {
           matchingNodeIds.add(node.id);
         }
       }
@@ -3669,38 +3674,92 @@ function performSearch() {
 
     let matches = false;
 
-    // Search event content
-    if (event.content?.toLowerCase().includes(query)) {
-      matches = true;
+    // Check kind filter
+    if (parsedFilter.kinds && parsedFilter.kinds.length > 0) {
+      if (!parsedFilter.kinds.includes(event.kind)) {
+        return; // Skip if kind doesn't match
+      }
     }
 
-    // Search tags
-    if (!matches && event.tags) {
-      const hasMatchingTag = event.tags.some((t: string[]) => {
-        if (t[0] === "t" && t[1]?.toLowerCase().includes(query)) {
-          return true; // Hashtag match
-        }
-        return t.some((val: string) => val?.toLowerCase().includes(query));
-      });
-      if (hasMatchingTag) matches = true;
+    // Check author filter
+    if (parsedFilter.authors && parsedFilter.authors.length > 0) {
+      if (parsedFilter.authors.some(a => event.pubkey?.toLowerCase().includes(a.toLowerCase()))) {
+        matches = true;
+      } else {
+        return; // Skip if author doesn't match
+      }
     }
 
-    // Search author pubkey
-    if (!matches && event.pubkey?.toLowerCase().includes(query)) {
-      matches = true;
+    // Check ID filter
+    if (parsedFilter.ids && parsedFilter.ids.length > 0) {
+      if (parsedFilter.ids.some(id => event.id?.toLowerCase().includes(id.toLowerCase()))) {
+        matches = true;
+      } else {
+        return; // Skip if ID doesn't match
+      }
     }
 
-    // Search event ID
-    if (!matches && event.id?.toLowerCase().includes(query)) {
-      matches = true;
+    // Check hashtag filter (#t)
+    if (parsedFilter['#t'] && parsedFilter['#t'].length > 0) {
+      const eventHashtags = event.tags?.filter((t: string[]) => t[0] === 't').map((t: string[]) => t[1]?.toLowerCase()) || [];
+      if (parsedFilter['#t'].some((tag: string) => eventHashtags.includes(tag.toLowerCase()))) {
+        matches = true;
+      } else if (!searchText) {
+        return; // Skip if hashtag doesn't match and no search text
+      }
     }
 
-    // Search mentions (p-tags)
-    if (!matches && event.tags) {
-      const hasMatchingMention = event.tags.some(
-        (t: string[]) => t[0] === "p" && t[1]?.toLowerCase().includes(query)
-      );
-      if (hasMatchingMention) matches = true;
+    // Check mention filter (#p)
+    if (parsedFilter['#p'] && parsedFilter['#p'].length > 0) {
+      const eventMentions = event.tags?.filter((t: string[]) => t[0] === 'p').map((t: string[]) => t[1]?.toLowerCase()) || [];
+      if (parsedFilter['#p'].some((pubkey: string) => eventMentions.some(m => m.includes(pubkey.toLowerCase())))) {
+        matches = true;
+      } else if (!searchText) {
+        return; // Skip if mention doesn't match and no search text
+      }
+    }
+
+    // Check event reference filter (#e)
+    if (parsedFilter['#e'] && parsedFilter['#e'].length > 0) {
+      const eventRefs = event.tags?.filter((t: string[]) => t[0] === 'e').map((t: string[]) => t[1]?.toLowerCase()) || [];
+      if (parsedFilter['#e'].some((eventId: string) => eventRefs.includes(eventId.toLowerCase()))) {
+        matches = true;
+      } else if (!searchText) {
+        return; // Skip if event ref doesn't match and no search text
+      }
+    }
+
+    // Check time filters
+    if (parsedFilter.since && event.created_at < parsedFilter.since) {
+      return; // Skip if too old
+    }
+    if (parsedFilter.until && event.created_at > parsedFilter.until) {
+      return; // Skip if too new
+    }
+
+    // Check search text in content
+    if (searchText) {
+      if (event.content?.toLowerCase().includes(searchText)) {
+        matches = true;
+      }
+
+      // Search all tags
+      if (!matches && event.tags) {
+        const hasMatchingTag = event.tags.some((t: string[]) =>
+          t.some((val: string) => val?.toLowerCase().includes(searchText))
+        );
+        if (hasMatchingTag) matches = true;
+      }
+
+      // Search author pubkey
+      if (!matches && event.pubkey?.toLowerCase().includes(searchText)) {
+        matches = true;
+      }
+
+      // Search event ID
+      if (!matches && event.id?.toLowerCase().includes(searchText)) {
+        matches = true;
+      }
     }
 
     if (matches) {
@@ -3835,28 +3894,50 @@ async function searchNostrRelays() {
 
   try {
     const query = searchQuery.value.trim();
+    
+    // Parse the query using nostr-dsl
+    const parsedFilter = parseNostrQuery(query);
+    console.log("[Search] Parsed filter:", parsedFilter);
 
-    // Fetch events that might contain the search query
-    // We'll search by content using kind 1 (notes) and kind 30023 (articles)
-    const events = await fetchInitialEvents([{ kinds: [1, 30023], limit: 100 }]);
+    // Extract search text for client-side filtering
+    const searchText = parsedFilter.search?.toLowerCase() || "";
+    
+    // Build Nostr filter for relay query
+    // Start with parsed filter but ensure we have default kinds if none specified
+    const relayFilter: any = { ...parsedFilter };
+    delete relayFilter.search; // Remove search field (not a standard NIP-01 filter)
+    
+    if (!relayFilter.kinds || relayFilter.kinds.length === 0) {
+      relayFilter.kinds = [1, 30023]; // Default: notes and articles
+    }
+    
+    if (!relayFilter.limit) {
+      relayFilter.limit = 100; // Default limit
+    }
 
-    // Filter events locally by search query
-    const matchingEvents = events.filter((event) => {
-      const searchLower = query.toLowerCase();
+    console.log("[Search] Relay filter:", relayFilter);
 
-      // Search content
-      if (event.content?.toLowerCase().includes(searchLower)) return true;
+    // Fetch events from relays using the parsed filter
+    const events = await fetchInitialEvents([relayFilter]);
 
-      // Search tags
-      if (
-        event.tags?.some((t: string[]) =>
-          t.some((val: string) => val?.toLowerCase().includes(searchLower))
+    // Apply client-side text search if search text exists
+    let matchingEvents = events;
+    if (searchText) {
+      matchingEvents = events.filter((event) => {
+        // Search content
+        if (event.content?.toLowerCase().includes(searchText)) return true;
+
+        // Search tags
+        if (
+          event.tags?.some((t: string[]) =>
+            t.some((val: string) => val?.toLowerCase().includes(searchText))
+          )
         )
-      )
-        return true;
+          return true;
 
-      return false;
-    });
+        return false;
+      });
+    }
 
     if (matchingEvents.length > 0) {
       graphStore.updateWithEvents(matchingEvents);
@@ -5034,14 +5115,10 @@ watch(layoutMode, (newLayout, oldLayout) => {
 
     if (rootId) {
       treeRootId.value = rootId;
-      const treeData = convertGraphToTree(nodes, edges, rootId);
+      const treeData = prepareTreeData(nodes, edges, rootId);
       console.log("[Layout] Tree data:", treeData);
 
-      // Convert tree data to graph format using G6's utility
-      const graphDataFromTree = treeToGraphData(treeData);
-      console.log("[Layout] Graph data from tree:", graphDataFromTree);
-
-      graph.setData(graphDataFromTree);
+      graph.setData(treeData);
       graph.setLayout(getLayoutConfig(newLayout));
       graph.layout();
       graph.render();
@@ -5079,10 +5156,9 @@ watch(layoutMode, (newLayout, oldLayout) => {
 
       const nodes = originalGraphData.value?.nodes || [];
       const edges = originalGraphData.value?.edges || [];
-      const treeData = convertGraphToTree(nodes, edges, treeRootId.value);
-      const graphDataFromTree = treeToGraphData(treeData);
+      const treeData = prepareTreeData(nodes, edges, treeRootId.value);
 
-      graph.setData(graphDataFromTree);
+      graph.setData(treeData);
     }
 
     graph.setLayout(getLayoutConfig(newLayout));
