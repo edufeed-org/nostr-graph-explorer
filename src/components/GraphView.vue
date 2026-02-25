@@ -4820,36 +4820,39 @@ onMounted(() => {
     }
   });
 
-  // Handle mouse wheel for scrolling selected card
+  // Handle mouse wheel for scrolling cards
   graphRef.value.addEventListener(
     "wheel",
     (e: WheelEvent) => {
-      if (!selectedCardId.value) return;
+      // Find which card (if any) the mouse is currently over
+      const target = e.target as HTMLElement;
+      const expandedCard = target.closest(".event-node.expanded");
+      
+      if (!expandedCard) {
+        // Mouse is not over an expanded card, allow normal zoom behavior
+        return;
+      }
 
-      // Find the selected card's body element
-      const selectedCard = graphRef.value?.querySelector(
-        `[data-item-id="${selectedCardId.value}"]`
-      );
-      if (!selectedCard) return;
-
-      const cardBody = selectedCard.querySelector(".event-body");
+      // Find the card body (scrollable content area)
+      const cardBody = expandedCard.querySelector(".event-body");
       if (!cardBody) return;
 
-      // Check if the mouse is over the selected card
-      const rect = selectedCard.getBoundingClientRect();
-      const isOverCard =
-        e.clientX >= rect.left &&
-        e.clientX <= rect.right &&
-        e.clientY >= rect.top &&
-        e.clientY <= rect.bottom;
+      // Check if we're actually over the content area (not just the card container)
+      const bodyRect = cardBody.getBoundingClientRect();
+      const isOverBody =
+        e.clientX >= bodyRect.left &&
+        e.clientX <= bodyRect.right &&
+        e.clientY >= bodyRect.top &&
+        e.clientY <= bodyRect.bottom;
 
-      if (isOverCard) {
+      if (isOverBody) {
+        // Prevent canvas zoom and scroll the card instead
         e.preventDefault();
         e.stopPropagation();
-
-        // Scroll the card body
         cardBody.scrollTop += e.deltaY;
       }
+      // If mouse is over card but not over scrollable body (e.g., header/footer),
+      // allow normal zoom behavior by not preventing default
     },
     { passive: false }
   );
