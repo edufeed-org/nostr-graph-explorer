@@ -1578,7 +1578,6 @@ type StatType = "reactions" | "replies" | "reposts" | "mentions" | "thread";
 const expandedStats = ref<Map<string, Set<StatType>>>(new Map());
 
 // Tree layout state - keep graph data, show tree as projection
-const activeNodeId = ref<string | null>(null); // Currently active/selected node
 const treeRootId = ref<string | null>(null); // Root node for tree layouts
 const originalGraphData = ref<{ nodes: any[]; edges: any[] } | null>(null); // Keep original graph data
 const selectedCardId = ref<string | null>(null); // Currently selected card for scrolling
@@ -1689,16 +1688,12 @@ function getKindColor(kind: number): string {
   return colors[kind] || "#6b7280"; // gray default
 }
 
-// Helper: Get CSS class for active/root node marker
+// Helper: Get CSS class for tree root node marker
 function getNodeMarkerClass(nodeId: string): string {
-  const isActive = activeNodeId.value === nodeId;
   const isRoot = treeRootId.value === nodeId;
 
   if (isRoot && isTreeLayout(layoutMode.value)) {
     return " tree-root-node"; // Red border for tree root
-  }
-  if (isActive) {
-    return " active-node"; // Highlight for selected node
   }
   return "";
 }
@@ -2117,15 +2112,9 @@ function isTreeLayout(layoutType: string): boolean {
 }
 
 // Find best root node for tree layout
-// Priority: 1) Current active node, 2) Node with most outgoing edges, 3) Node with no incoming edges
+// Priority: 1) Previously set tree root, 2) Node with most outgoing edges, 3) Node with no incoming edges
 function findBestRoot(nodes: any[], edges: any[]): string | null {
   if (nodes.length === 0) return null;
-
-  // If there's an active node, use it
-  if (activeNodeId.value && nodes.some((n) => n.id === activeNodeId.value)) {
-    console.log("[Tree] Using active node as root:", activeNodeId.value);
-    return activeNodeId.value;
-  }
 
   // If there's a previously set tree root, use it
   if (treeRootId.value && nodes.some((n) => n.id === treeRootId.value)) {
@@ -2622,7 +2611,6 @@ function showMultiSelectionContextMenu(x: number, y: number) {
 function makeTreeRoot(nodeId: string) {
   console.log("[Tree] Setting new root node:", nodeId);
   treeRootId.value = nodeId;
-  activeNodeId.value = nodeId;
 
   // If we're currently in a tree layout, rebuild the tree with new root
   if (isTreeLayout(layoutMode.value) && graph && originalGraphData.value) {
@@ -4072,20 +4060,73 @@ onMounted(() => {
     const nodeId = evt.target?.id || evt.item?.id;
     if (!nodeId || nodeId === "__super_root__") return; // Ignore virtual root
 
-    // If shift is held, let G6's click-select behavior handle it
+    // Handle shift+click for multi-selection (manual implementation since HTML nodes don't work with click-select behavior)
     if (evt.shiftKey) {
+      console.log("[Selection] Shift+click on:", nodeId);
+      const currentState = graph?.getElementState(nodeId);
+      const isSelected = currentState?.includes("selected");
+
+      if (isSelected) {
+        // Deselect
+        graph?.setElementState(nodeId, "selected", false);
+        selectedNodeIds.value.delete(nodeId);
+        console.log("[Selection] Deselected:", nodeId, "Total:", selectedNodeIds.value.size);
+
+        // Remove CSS class
+        const element = graphRef.value?.querySelector(`[data-item-id="${nodeId}"]`);
+        element?.classList.remove("g6-selected");
+      } else {
+        // Select
+        graph?.setElementState(nodeId, "selected", true);
+        selectedNodeIds.value.add(nodeId);
+        console.log("[Selection] Selected:", nodeId, "Total:", selectedNodeIds.value.size);
+
+        // Add CSS class
+        setTimeout(() => {
+          const element = graphRef.value?.querySelector(`[data-item-id="${nodeId}"]`);
+          if (element && !element.classList.contains("g6-selected")) {
+            element.classList.add("g6-selected");
+            console.log("[Selection] Applied g6-selected class to:", nodeId);
+          }
+        }, 10);
+      }
       return;
     }
 
-    console.log("[Node] Active node set to:", nodeId);
-    activeNodeId.value = nodeId;
-    graphStore.selectNode(nodeId);
+    // Normal click: clear multi-selection and select this node only
+    console.log("[Selection] Single click on:", nodeId);
+    
+    // Clear all previous selections
+    if (selectedNodeIds.value.size > 0) {
+      selectedNodeIds.value.forEach((id: string) => {
+        graph?.setElementState(id, "selected", false);
+      });
+      selectedNodeIds.value.clear();
+
+      // Clear CSS classes
+      const allElements = graphRef.value?.querySelectorAll("[data-item-id]");
+      allElements?.forEach((el) => {
+        el.classList.remove("g6-selected");
+      });
+    }
+
+    // Select the clicked node
+    graph?.setElementState(nodeId, "selected", true);
+    selectedNodeIds.value.add(nodeId);
+    console.log("[Selection] Selected single node:", nodeId);
+
+    // Add CSS class
+    setTimeout(() => {
+      const element = graphRef.value?.querySelector(`[data-item-id="${nodeId}"]`);
+      if (element && !element.classList.contains("g6-selected")) {
+        element.classList.add("g6-selected");
+      }
+    }, 10);
 
     // Check if node is collapsed and select it for visual feedback
     const nodeData = graph.getNodeData(nodeId);
     if (nodeData && !nodeData.data?.expanded) {
       selectedCollapsedNodeId.value = nodeId;
-      console.log("[Node] Selected collapsed node:", nodeId);
     } else {
       selectedCollapsedNodeId.value = null; // Deselect if expanded
     }
@@ -4125,10 +4166,6 @@ onMounted(() => {
     graph.updateNodeData([updated]);
     graph.render();
 
-    // Set as active node and select card so user can scroll immediately
-    activeNodeId.value = nodeId;
-    graphStore.selectNode(nodeId);
-
     // Wait for DOM to update before applying selected class
     nextTick(() => {
       if (expanded) {
@@ -4146,7 +4183,6 @@ onMounted(() => {
 
   // Handle canvas click (deselect)
   graph.on("canvas:click", () => {
-    graphStore.selectNode(null);
     selectedCardId.value = null; // Deselect card when clicking on canvas
     selectedCollapsedNodeId.value = null; // Deselect collapsed node
     clearSelection(); // Clear multi-selection
@@ -4850,6 +4886,16 @@ onMounted(() => {
 
     selectedNodeIds.value = selected;
     console.log("[Selection] Nodes selected:", selected.size);
+
+    // Apply CSS class for visual feedback on HTML nodes (halo doesn't work with HTML)
+    setTimeout(() => {
+      selected.forEach((nodeId: string) => {
+        const element = graphRef.value?.querySelector(`[data-item-id="${nodeId}"]`);
+        if (element && !element.classList.contains("g6-selected")) {
+          element.classList.add("g6-selected");
+        }
+      });
+    }, 10);
   });
 
   graph.on("afteritemsunselected", (_evt: any) => {
@@ -4870,6 +4916,22 @@ onMounted(() => {
 
     selectedNodeIds.value = selected;
     console.log("[Selection] Nodes after unselect:", selected.size);
+
+    // Remove CSS class from all nodes first
+    const allElements = graphRef.value?.querySelectorAll("[data-item-id]");
+    allElements?.forEach((el) => {
+      el.classList.remove("g6-selected");
+    });
+
+    // Re-apply to still-selected nodes
+    setTimeout(() => {
+      selected.forEach((nodeId: string) => {
+        const element = graphRef.value?.querySelector(`[data-item-id="${nodeId}"]`);
+        if (element) {
+          element.classList.add("g6-selected");
+        }
+      });
+    }, 10);
   });
 
   // Set up Escape key handler to clear selection
@@ -5191,6 +5253,13 @@ function clearSelection() {
   });
 
   selectedNodeIds.value.clear();
+  
+  // Remove CSS classes
+  const allElements = graphRef.value?.querySelectorAll("[data-item-id]");
+  allElements?.forEach((el) => {
+    el.classList.remove("g6-selected");
+  });
+  
   console.log("[Selection] Cleared");
 }
 
@@ -5666,7 +5735,6 @@ function captureCurrentState(): Omit<GraphState, "id" | "createdAt" | "updatedAt
     },
     layoutType: layoutMode.value,
     selectedNodeId: graphStore.selectedNodeId,
-    activeNodeId: activeNodeId.value,
     treeRootId: treeRootId.value,
     expandedCardIds,
     selectedCardId: selectedCardId.value,
@@ -5728,7 +5796,6 @@ async function restoreInvestigation(stateId: string) {
     // Restore UI state
     layoutMode.value = state.layoutType;
     graphStore.selectedNodeId = state.selectedNodeId;
-    activeNodeId.value = state.activeNodeId;
     treeRootId.value = state.treeRootId;
     selectedCardId.value = state.selectedCardId;
 
@@ -5944,12 +6011,6 @@ defineExpose({
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
-/* Active node marker (selected/clicked node) */
-:deep(.node-circle.active-node) {
-  outline: 2px solid #3b82f6;
-  outline-offset: 2px;
-}
-
 /* Tree root node marker (red border) */
 :deep(.node-circle.tree-root-node) {
   border: 3px solid #ef4444 !important;
@@ -5987,6 +6048,14 @@ defineExpose({
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3), 0 4px 12px rgba(59, 130, 246, 0.25) !important;
   transform: scale(1.05);
   z-index: 10;
+}
+
+/* Multi-selected nodes (shift+click or brush selection) */
+:deep(.node-circle.g6-selected),
+:deep(.event-node.g6-selected) {
+  outline: 3px solid #10b981 !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.2) !important;
 }
 
 :deep(.profile-picture) {

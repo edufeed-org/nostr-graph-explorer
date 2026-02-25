@@ -12,7 +12,6 @@ export interface GraphState {
   // UI state
   layoutType: string
   selectedNodeId: string | null
-  activeNodeId: string | null
   treeRootId: string | null
   expandedCardIds: string[]
   selectedCardId: string | null
