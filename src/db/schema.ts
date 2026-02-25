@@ -37,9 +37,24 @@ export interface NostrGraphDB extends DBSchema {
       id: string
       name: string
       description: string
-      nodeIds: string[]
+      // Graph data
+      graphData: {
+        nodes: any[]
+        edges: any[]
+      }
+      // UI state
+      layoutType: string
+      selectedNodeId: string | null
+      activeNodeId: string | null
+      treeRootId: string | null
+      expandedCardIds: string[]
+      selectedCardId: string | null
+      // Camera state
+      zoom: number | null
+      pan: { x: number; y: number } | null
+      // Filters
       filters: any
-      layout: string
+      // Metadata
       createdAt: number
       updatedAt: number
     }
@@ -87,7 +102,7 @@ export interface NostrGraphDB extends DBSchema {
 }
 
 const DB_NAME = 'nostr-graph'
-const DB_VERSION = 2 // Incremented for relay table
+const DB_VERSION = 3 // Incremented for expanded graphStates schema
 
 let dbInstance: IDBPDatabase<NostrGraphDB> | null = null
 

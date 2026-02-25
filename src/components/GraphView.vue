@@ -1,10 +1,67 @@
 <template>
   <v-container fluid class="graph-container pa-0">
     <div ref="graphRef" class="graph-canvas"></div>
-    
+
     <!-- Graph controls -->
     <div class="graph-controls">
-      <v-card class="pa-2" style="min-width: 280px; max-height: 90vh; overflow-y: auto;">
+      <v-card class="pa-2" style="min-width: 280px; max-height: 90vh; overflow-y: auto">
+        <!-- Investigation Name -->
+        <div class="d-flex align-center gap-1 mb-2">
+          <v-chip
+            v-if="!isEditingName"
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-file-document"
+            @click="startRenaming"
+            style="cursor: pointer; flex: 1"
+            :title="'Click to rename'"
+          >
+            {{ currentInvestigationName }}
+          </v-chip>
+          <v-text-field
+            v-else
+            v-model="currentInvestigationName"
+            density="compact"
+            hide-details
+            autofocus
+            @blur="finishRenaming"
+            @keyup.enter="finishRenaming"
+            style="flex: 1"
+          ></v-text-field>
+          <v-tooltip location="bottom">
+            <template #activator="{ props }">
+              <v-btn
+                v-bind="props"
+                size="small"
+                icon="mdi-content-save"
+                variant="tonal"
+                color="success"
+                @click="saveCurrentInvestigation"
+                :title="'Save current investigation'"
+              ></v-btn>
+            </template>
+            <span>Save</span>
+          </v-tooltip>
+          <v-tooltip location="bottom">
+            <template #activator="{ props }">
+              <v-btn
+                v-bind="props"
+                size="small"
+                icon="mdi-reload"
+                variant="tonal"
+                @click="
+                  savedStatesDialog = true;
+                  loadSavedStates();
+                "
+                :title="'Manage saved investigations'"
+              ></v-btn>
+            </template>
+            <span>Manage Saved</span>
+          </v-tooltip>
+        </div>
+
+        <v-divider class="mb-2"></v-divider>
+
         <!-- Search Bar -->
         <v-text-field
           v-model="searchQuery"
@@ -29,7 +86,7 @@
             ></v-btn>
           </template>
         </v-text-field>
-        
+
         <!-- Search Controls -->
         <div v-if="searchQuery" class="d-flex ga-1 mb-2">
           <v-btn
@@ -38,7 +95,7 @@
             prepend-icon="mdi-web"
             @click="searchNostrRelays"
             :loading="isSearching"
-            style="flex: 1;"
+            style="flex: 1"
           >
             Search Nostr
           </v-btn>
@@ -52,12 +109,12 @@
             {{ searchMode }}
           </v-btn>
         </div>
-        
+
         <!-- Search Results Counter -->
-        <v-chip 
-          v-if="searchActive" 
-          size="small" 
-          variant="flat" 
+        <v-chip
+          v-if="searchActive"
+          size="small"
+          variant="flat"
           color="primary"
           closable
           @click:close="clearSearch"
@@ -66,9 +123,9 @@
           <v-icon start>mdi-filter-check</v-icon>
           {{ searchResults.size }} matches
         </v-chip>
-        
+
         <v-divider v-if="searchQuery || searchActive" class="mb-2"></v-divider>
-        
+
         <v-select
           v-model="layoutMode"
           :items="layoutOptions"
@@ -78,23 +135,23 @@
           density="compact"
           hide-details
         ></v-select>
-        
+
         <!-- Filter/Highlight Controls -->
         <div class="d-flex gap-1 mt-2">
-          <v-btn 
-            @click="clearFilters" 
-            size="small" 
-            variant="tonal" 
+          <v-btn
+            @click="clearFilters"
+            size="small"
+            variant="tonal"
             color="primary"
             prepend-icon="mdi-filter-off"
             block
           >
             Clear Filters
           </v-btn>
-          <v-btn 
-            @click="resetHighlights" 
-            size="small" 
-            variant="tonal" 
+          <v-btn
+            @click="resetHighlights"
+            size="small"
+            variant="tonal"
             color="secondary"
             prepend-icon="mdi-format-color-highlight-off"
             block
@@ -102,159 +159,953 @@
             Reset Style
           </v-btn>
         </div>
-        
+
         <v-divider class="my-2"></v-divider>
-        
+
         <!-- Layout Settings -->
         <div class="text-caption text-medium-emphasis mb-1">Layout Settings</div>
-        
+
         <div v-if="layoutMode === 'd3-force'" class="mb-2">
           <div class="text-caption text-medium-emphasis mb-1">Link Force</div>
-          <v-slider v-model="layoutSettings.d3Force.linkDistance" :min="10" :max="500" label="Distance" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.linkStrength" :min="0" :max="2" :step="0.1" label="Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.linkIterations" :min="1" :max="10" label="Iterations" thumb-label density="compact" hide-details class="mb-2"></v-slider>
-          
-          <div class="text-caption text-medium-emphasis mb-1">Many-Body Force (Repulsion)</div>
-          <v-slider v-model="layoutSettings.d3Force.manyBodyStrength" :min="-2000" :max="100" label="Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.manyBodyTheta" :min="0" :max="1" :step="0.1" label="Theta (Accuracy)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.manyBodyDistanceMin" :min="1" :max="100" label="Min Distance" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.manyBodyDistanceMax" :min="100" :max="2000" label="Max Distance" thumb-label density="compact" hide-details class="mb-2"></v-slider>
-          
+          <v-slider
+            v-model="layoutSettings.d3Force.linkDistance"
+            :min="10"
+            :max="500"
+            label="Distance"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.linkStrength"
+            :min="0"
+            :max="2"
+            :step="0.1"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.linkIterations"
+            :min="1"
+            :max="10"
+            label="Iterations"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
+          <div class="text-caption text-medium-emphasis mb-1">
+            Many-Body Force (Repulsion)
+          </div>
+          <v-slider
+            v-model="layoutSettings.d3Force.manyBodyStrength"
+            :min="-2000"
+            :max="100"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.manyBodyTheta"
+            :min="0"
+            :max="1"
+            :step="0.1"
+            label="Theta (Accuracy)"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.manyBodyDistanceMin"
+            :min="1"
+            :max="100"
+            label="Min Distance"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.manyBodyDistanceMax"
+            :min="100"
+            :max="2000"
+            label="Max Distance"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Center Force</div>
-          <v-slider v-model="layoutSettings.d3Force.centerX" :min="-500" :max="500" label="Center X" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.centerY" :min="-500" :max="500" label="Center Y" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.centerStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details class="mb-2"></v-slider>
-          
+          <v-slider
+            v-model="layoutSettings.d3Force.centerX"
+            :min="-500"
+            :max="500"
+            label="Center X"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.centerY"
+            :min="-500"
+            :max="500"
+            label="Center Y"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.centerStrength"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Collision Force</div>
-          <v-slider v-model="layoutSettings.d3Force.collideRadius" :min="5" :max="100" label="Radius" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.collideStrength" :min="0" :max="1" :step="0.1" label="Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.collideIterations" :min="1" :max="10" label="Iterations" thumb-label density="compact" hide-details class="mb-2"></v-slider>
-          
-          <div class="text-caption text-medium-emphasis mb-1">ForceX (Horizontal Positioning)</div>
-          <v-switch v-model="layoutSettings.d3Force.forceXEnabled" label="Enable ForceX" color="primary" density="compact" hide-details class="mb-1"></v-switch>
-          <v-slider v-model="layoutSettings.d3Force.forceXX" :min="-500" :max="500" label="X Position" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceXEnabled" class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.forceXStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceXEnabled" class="mb-2"></v-slider>
-          
-          <div class="text-caption text-medium-emphasis mb-1">ForceY (Vertical Positioning)</div>
-          <v-switch v-model="layoutSettings.d3Force.forceYEnabled" label="Enable ForceY" color="primary" density="compact" hide-details class="mb-1"></v-switch>
-          <v-slider v-model="layoutSettings.d3Force.forceYY" :min="-500" :max="500" label="Y Position" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceYEnabled" class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.forceYStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.forceYEnabled" class="mb-2"></v-slider>
-          
+          <v-slider
+            v-model="layoutSettings.d3Force.collideRadius"
+            :min="5"
+            :max="100"
+            label="Radius"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.collideStrength"
+            :min="0"
+            :max="1"
+            :step="0.1"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.collideIterations"
+            :min="1"
+            :max="10"
+            label="Iterations"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
+          <div class="text-caption text-medium-emphasis mb-1">
+            ForceX (Horizontal Positioning)
+          </div>
+          <v-switch
+            v-model="layoutSettings.d3Force.forceXEnabled"
+            label="Enable ForceX"
+            color="primary"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-switch>
+          <v-slider
+            v-model="layoutSettings.d3Force.forceXX"
+            :min="-500"
+            :max="500"
+            label="X Position"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.forceXEnabled"
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.forceXStrength"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.forceXEnabled"
+            class="mb-2"
+          ></v-slider>
+
+          <div class="text-caption text-medium-emphasis mb-1">
+            ForceY (Vertical Positioning)
+          </div>
+          <v-switch
+            v-model="layoutSettings.d3Force.forceYEnabled"
+            label="Enable ForceY"
+            color="primary"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-switch>
+          <v-slider
+            v-model="layoutSettings.d3Force.forceYY"
+            :min="-500"
+            :max="500"
+            label="Y Position"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.forceYEnabled"
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.forceYStrength"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.forceYEnabled"
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Radial Force</div>
-          <v-switch v-model="layoutSettings.d3Force.radialEnabled" label="Enable Radial" color="primary" density="compact" hide-details class="mb-1"></v-switch>
-          <v-slider v-model="layoutSettings.d3Force.radialX" :min="-500" :max="500" label="Center X" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.radialY" :min="-500" :max="500" label="Center Y" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.radialRadius" :min="50" :max="500" label="Radius" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.radialStrength" :min="0" :max="1" :step="0.05" label="Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.d3Force.radialEnabled" class="mb-2"></v-slider>
-          
+          <v-switch
+            v-model="layoutSettings.d3Force.radialEnabled"
+            label="Enable Radial"
+            color="primary"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-switch>
+          <v-slider
+            v-model="layoutSettings.d3Force.radialX"
+            :min="-500"
+            :max="500"
+            label="Center X"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.radialEnabled"
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.radialY"
+            :min="-500"
+            :max="500"
+            label="Center Y"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.radialEnabled"
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.radialRadius"
+            :min="50"
+            :max="500"
+            label="Radius"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.radialEnabled"
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.radialStrength"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            label="Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.d3Force.radialEnabled"
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Iteration Control</div>
-          <v-slider v-model="layoutSettings.d3Force.alpha" :min="0" :max="1" :step="0.1" label="Alpha (Energy)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.alphaMin" :min="0" :max="0.1" :step="0.001" label="Min Alpha" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.alphaDecay" :min="0" :max="0.1" :step="0.001" label="Alpha Decay" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.alphaTarget" :min="0" :max="1" :step="0.01" label="Alpha Target" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.d3Force.velocityDecay" :min="0" :max="1" :step="0.05" label="Velocity Decay" thumb-label density="compact" hide-details></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.alpha"
+            :min="0"
+            :max="1"
+            :step="0.1"
+            label="Alpha (Energy)"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.alphaMin"
+            :min="0"
+            :max="0.1"
+            :step="0.001"
+            label="Min Alpha"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.alphaDecay"
+            :min="0"
+            :max="0.1"
+            :step="0.001"
+            label="Alpha Decay"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.alphaTarget"
+            :min="0"
+            :max="1"
+            :step="0.01"
+            label="Alpha Target"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.d3Force.velocityDecay"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            label="Velocity Decay"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
         </div>
-        
+
         <div v-else-if="layoutMode === 'force'" class="mb-2">
           <div class="text-caption text-medium-emphasis mb-1">Center Position</div>
-          <v-slider v-model="layoutSettings.force.centerX" :min="-500" :max="500" label="Center X" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.force.centerY" :min="-500" :max="500" label="Center Y" thumb-label density="compact" hide-details class="mb-2"></v-slider>
-          
+          <v-slider
+            v-model="layoutSettings.force.centerX"
+            :min="-500"
+            :max="500"
+            label="Center X"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.centerY"
+            :min="-500"
+            :max="500"
+            label="Center Y"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Link/Edge Properties</div>
-          <v-slider v-model="layoutSettings.force.linkDistance" :min="10" :max="500" label="Link Distance" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.force.edgeStrength" :min="0" :max="2" :step="0.1" label="Edge Strength" thumb-label density="compact" hide-details class="mb-2"></v-slider>
-          
+          <v-slider
+            v-model="layoutSettings.force.linkDistance"
+            :min="10"
+            :max="500"
+            label="Link Distance"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.edgeStrength"
+            :min="0"
+            :max="2"
+            :step="0.1"
+            label="Edge Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Node Properties</div>
-          <v-slider v-model="layoutSettings.force.nodeStrength" :min="-100" :max="100" label="Node Strength" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.force.nodeSize" :min="20" :max="100" label="Node Size" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.force.nodeSpacing" :min="10" :max="100" label="Node Spacing" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-switch v-model="layoutSettings.force.preventOverlap" label="Prevent Overlap" color="primary" density="compact" hide-details class="mb-2"></v-switch>
-          
+          <v-slider
+            v-model="layoutSettings.force.nodeStrength"
+            :min="-100"
+            :max="100"
+            label="Node Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.nodeSize"
+            :min="20"
+            :max="100"
+            label="Node Size"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.nodeSpacing"
+            :min="10"
+            :max="100"
+            label="Node Spacing"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-switch
+            v-model="layoutSettings.force.preventOverlap"
+            label="Prevent Overlap"
+            color="primary"
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-switch>
+
           <div class="text-caption text-medium-emphasis mb-1">Clustering</div>
-          <v-switch v-model="layoutSettings.force.clustering" label="Enable Clustering" color="primary" density="compact" hide-details class="mb-1"></v-switch>
-          <v-slider v-model="layoutSettings.force.clusterNodeStrength" :min="-50" :max="100" label="Cluster Node Strength" thumb-label density="compact" hide-details :disabled="!layoutSettings.force.clustering" class="mb-2"></v-slider>
-          
+          <v-switch
+            v-model="layoutSettings.force.clustering"
+            label="Enable Clustering"
+            color="primary"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-switch>
+          <v-slider
+            v-model="layoutSettings.force.clusterNodeStrength"
+            :min="-50"
+            :max="100"
+            label="Cluster Node Strength"
+            thumb-label
+            density="compact"
+            hide-details
+            :disabled="!layoutSettings.force.clustering"
+            class="mb-2"
+          ></v-slider>
+
           <div class="text-caption text-medium-emphasis mb-1">Iteration Control</div>
-          <v-slider v-model="layoutSettings.force.alpha" :min="0" :max="1" :step="0.05" label="Alpha (Energy)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.force.alphaDecay" :min="0" :max="0.1" :step="0.001" label="Alpha Decay" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.force.alphaMin" :min="0" :max="0.1" :step="0.001" label="Min Alpha" thumb-label density="compact" hide-details></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.alpha"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            label="Alpha (Energy)"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.alphaDecay"
+            :min="0"
+            :max="0.1"
+            :step="0.001"
+            label="Alpha Decay"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.force.alphaMin"
+            :min="0"
+            :max="0.1"
+            :step="0.001"
+            label="Min Alpha"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
         </div>
-        
+
         <div v-else-if="layoutMode === 'circular'" class="mb-2">
-          <v-slider v-model="layoutSettings.circular.radius" :min="200" :max="1000" label="Radius" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.startRadius" :min="100" :max="500" label="Start Radius (Spiral)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.endRadius" :min="400" :max="1200" label="End Radius (Spiral)" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.divisions" :min="1" :max="10" label="Divisions" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.angleRatio" :min="0.1" :max="2" :step="0.1" label="Angle Ratio" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.startAngle" :min="0" :max="6.28" :step="0.1" label="Start Angle" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.endAngle" :min="0" :max="6.28" :step="0.1" label="End Angle" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.nodeSize" :min="20" :max="120" label="Node Size" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.circular.nodeSpacing" :min="5" :max="50" label="Node Spacing" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-select v-model="layoutSettings.circular.ordering" :items="['topology', 'topology-directed', 'degree', null]" label="Ordering" density="compact" hide-details class="mb-1"></v-select>
-          <v-switch v-model="layoutSettings.circular.clockwise" label="Clockwise" color="primary" density="compact" hide-details></v-switch>
+          <v-slider
+            v-model="layoutSettings.circular.radius"
+            :min="200"
+            :max="1000"
+            label="Radius"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.startRadius"
+            :min="100"
+            :max="500"
+            label="Start Radius (Spiral)"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.endRadius"
+            :min="400"
+            :max="1200"
+            label="End Radius (Spiral)"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.divisions"
+            :min="1"
+            :max="10"
+            label="Divisions"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.angleRatio"
+            :min="0.1"
+            :max="2"
+            :step="0.1"
+            label="Angle Ratio"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.startAngle"
+            :min="0"
+            :max="6.28"
+            :step="0.1"
+            label="Start Angle"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.endAngle"
+            :min="0"
+            :max="6.28"
+            :step="0.1"
+            label="End Angle"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.nodeSize"
+            :min="20"
+            :max="120"
+            label="Node Size"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.circular.nodeSpacing"
+            :min="5"
+            :max="50"
+            label="Node Spacing"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-select
+            v-model="layoutSettings.circular.ordering"
+            :items="['topology', 'topology-directed', 'degree', null]"
+            label="Ordering"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-select>
+          <v-switch
+            v-model="layoutSettings.circular.clockwise"
+            label="Clockwise"
+            color="primary"
+            density="compact"
+            hide-details
+          ></v-switch>
         </div>
-        
+
         <div v-else-if="layoutMode === 'compact-box'" class="mb-2">
-          <v-select v-model="layoutSettings.compactBox.direction" :items="['LR', 'RL', 'TB', 'BT', 'H', 'V']" label="Direction" density="compact" hide-details class="mb-1"></v-select>
-          <v-slider v-model="layoutSettings.compactBox.nodeWidth" :min="20" :max="100" label="Node Width" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.compactBox.nodeHeight" :min="20" :max="100" label="Node Height" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.compactBox.hGap" :min="50" :max="200" label="Horizontal Gap" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.compactBox.vGap" :min="50" :max="200" label="Vertical Gap" thumb-label density="compact" hide-details></v-slider>
+          <v-select
+            v-model="layoutSettings.compactBox.direction"
+            :items="['LR', 'RL', 'TB', 'BT', 'H', 'V']"
+            label="Direction"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-select>
+          <v-slider
+            v-model="layoutSettings.compactBox.nodeWidth"
+            :min="20"
+            :max="100"
+            label="Node Width"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.compactBox.nodeHeight"
+            :min="20"
+            :max="100"
+            label="Node Height"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.compactBox.hGap"
+            :min="50"
+            :max="200"
+            label="Horizontal Gap"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.compactBox.vGap"
+            :min="50"
+            :max="200"
+            label="Vertical Gap"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
         </div>
-        
+
         <div v-else-if="layoutMode === 'dagre'" class="mb-2">
-          <v-select v-model="layoutSettings.dagre.rankdir" :items="['TB', 'BT', 'LR', 'RL']" label="Direction" density="compact" hide-details class="mb-1"></v-select>
-          <v-slider v-model="layoutSettings.dagre.nodesep" :min="20" :max="200" label="Node Separation" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.dagre.ranksep" :min="50" :max="300" label="Rank Separation" thumb-label density="compact" hide-details></v-slider>
+          <v-select
+            v-model="layoutSettings.dagre.rankdir"
+            :items="['TB', 'BT', 'LR', 'RL']"
+            label="Direction"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-select>
+          <v-slider
+            v-model="layoutSettings.dagre.nodesep"
+            :min="20"
+            :max="200"
+            label="Node Separation"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.dagre.ranksep"
+            :min="50"
+            :max="300"
+            label="Rank Separation"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
         </div>
-        
+
         <div v-else-if="layoutMode === 'concentric'" class="mb-2">
-          <v-slider v-model="layoutSettings.concentric.minNodeSpacing" :min="10" :max="100" label="Min Node Spacing" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-switch v-model="layoutSettings.concentric.preventOverlap" label="Prevent Overlap" color="primary" density="compact" hide-details></v-switch>
+          <v-slider
+            v-model="layoutSettings.concentric.minNodeSpacing"
+            :min="10"
+            :max="100"
+            label="Min Node Spacing"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-switch
+            v-model="layoutSettings.concentric.preventOverlap"
+            label="Prevent Overlap"
+            color="primary"
+            density="compact"
+            hide-details
+          ></v-switch>
         </div>
-        
+
         <div v-else-if="layoutMode === 'grid'" class="mb-2">
-          <v-slider v-model="layoutSettings.grid.rows" :min="1" :max="20" label="Rows" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.grid.cols" :min="1" :max="20" label="Columns" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-switch v-model="layoutSettings.grid.preventOverlap" label="Prevent Overlap" color="primary" density="compact" hide-details></v-switch>
+          <v-slider
+            v-model="layoutSettings.grid.rows"
+            :min="1"
+            :max="20"
+            label="Rows"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.grid.cols"
+            :min="1"
+            :max="20"
+            label="Columns"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-switch
+            v-model="layoutSettings.grid.preventOverlap"
+            label="Prevent Overlap"
+            color="primary"
+            density="compact"
+            hide-details
+          ></v-switch>
         </div>
-        
+
         <div v-else-if="layoutMode === 'radial'" class="mb-2">
-          <v-slider v-model="layoutSettings.radial.unitRadius" :min="50" :max="200" label="Unit Radius" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-switch v-model="layoutSettings.radial.preventOverlap" label="Prevent Overlap" color="primary" density="compact" hide-details></v-switch>
+          <v-slider
+            v-model="layoutSettings.radial.unitRadius"
+            :min="50"
+            :max="200"
+            label="Unit Radius"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-switch
+            v-model="layoutSettings.radial.preventOverlap"
+            label="Prevent Overlap"
+            color="primary"
+            density="compact"
+            hide-details
+          ></v-switch>
         </div>
-        
+
         <div v-else-if="layoutMode === 'dendrogram'" class="mb-2">
-          <v-select v-model="layoutSettings.dendrogram.direction" :items="['LR', 'RL', 'TB', 'BT', 'H', 'V']" label="Direction" density="compact" hide-details class="mb-1"></v-select>
-          <v-slider v-model="layoutSettings.dendrogram.nodeSep" :min="10" :max="100" label="Node Separation" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.dendrogram.rankSep" :min="50" :max="200" label="Rank Separation" thumb-label density="compact" hide-details></v-slider>
+          <div class="text-caption text-medium-emphasis mb-1">Layout Type</div>
+          <v-switch
+            v-model="layoutSettings.dendrogram.radial"
+            label="Radial Mode"
+            color="primary"
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-switch>
+
+          <div class="text-caption text-medium-emphasis mb-1">Direction</div>
+          <v-select
+            v-model="layoutSettings.dendrogram.direction"
+            :items="['LR', 'RL', 'TB', 'BT', 'H', 'V']"
+            label="Direction"
+            density="compact"
+            hide-details
+            :disabled="layoutSettings.dendrogram.radial"
+            class="mb-2"
+          ></v-select>
+
+          <div class="text-caption text-medium-emphasis mb-1">Spacing</div>
+          <v-slider
+            v-model="layoutSettings.dendrogram.nodeSep"
+            :min="10"
+            :max="200"
+            label="Node Separation"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.dendrogram.rankSep"
+            :min="50"
+            :max="400"
+            label="Rank Separation"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
         </div>
-        
+
         <div v-else-if="layoutMode === 'mindmap'" class="mb-2">
-          <v-select v-model="layoutSettings.mindmap.direction" :items="['H', 'V']" label="Direction" density="compact" hide-details class="mb-1"></v-select>
-          <v-slider v-model="layoutSettings.mindmap.hGap" :min="20" :max="150" label="Horizontal Gap" thumb-label density="compact" hide-details class="mb-1"></v-slider>
-          <v-slider v-model="layoutSettings.mindmap.vGap" :min="20" :max="150" label="Vertical Gap" thumb-label density="compact" hide-details></v-slider>
+          <div class="text-caption text-medium-emphasis mb-1">Direction</div>
+          <v-select
+            v-model="layoutSettings.mindmap.direction"
+            :items="[
+              { title: 'Horizontal (H)', value: 'H' },
+              { title: 'Vertical (V)', value: 'V' },
+              { title: 'Left to Right (LR)', value: 'LR' },
+              { title: 'Right to Left (RL)', value: 'RL' },
+              { title: 'Top to Bottom (TB)', value: 'TB' },
+              { title: 'Bottom to Top (BT)', value: 'BT' },
+            ]"
+            label="Direction"
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-select>
+
+          <div class="text-caption text-medium-emphasis mb-1">Spacing</div>
+          <v-slider
+            v-model="layoutSettings.mindmap.hGap"
+            :min="10"
+            :max="200"
+            label="Horizontal Gap"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.mindmap.vGap"
+            :min="10"
+            :max="200"
+            label="Vertical Gap"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
+          <div class="text-caption text-medium-emphasis mb-1">Node Size</div>
+          <v-slider
+            v-model="layoutSettings.mindmap.getHeight"
+            :min="20"
+            :max="100"
+            label="Node Height"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.mindmap.getWidth"
+            :min="50"
+            :max="300"
+            label="Node Width"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
         </div>
-        
+
+        <div v-else-if="layoutMode === 'fruchterman'" class="mb-2">
+          <div class="text-caption text-medium-emphasis mb-1">Center Position</div>
+          <v-slider
+            v-model="layoutSettings.fruchterman.centerX"
+            :min="-500"
+            :max="500"
+            label="Center X"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.fruchterman.centerY"
+            :min="-500"
+            :max="500"
+            label="Center Y"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
+          <div class="text-caption text-medium-emphasis mb-1">Physics Parameters</div>
+          <v-slider
+            v-model="layoutSettings.fruchterman.maxIteration"
+            :min="100"
+            :max="5000"
+            :step="100"
+            label="Max Iterations"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.fruchterman.gravity"
+            :min="1"
+            :max="50"
+            label="Gravity"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.fruchterman.speed"
+            :min="1"
+            :max="20"
+            label="Speed"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-slider>
+
+          <div class="text-caption text-medium-emphasis mb-1">Clustering</div>
+          <v-switch
+            v-model="layoutSettings.fruchterman.clustering"
+            label="Enable Clustering"
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-switch>
+          <v-slider
+            v-model="layoutSettings.fruchterman.clusterGravity"
+            :min="1"
+            :max="50"
+            label="Cluster Gravity"
+            :disabled="!layoutSettings.fruchterman.clustering"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
+        </div>
+
         <div v-else class="mb-2">
           <p class="text-caption text-medium-emphasis">No settings for this layout</p>
         </div>
-        
+
         <v-divider class="my-2"></v-divider>
-        
+
         <div class="d-flex ga-1">
-          <v-btn icon="mdi-fit-to-screen" size="small" @click="fitView" title="Fit to screen"></v-btn>
-          <v-btn 
-            :icon="isAnimating ? 'mdi-pause' : 'mdi-play'" 
-            size="small" 
-            @click="toggleAnimation" 
+          <v-btn
+            icon="mdi-fit-to-screen"
+            size="small"
+            @click="fitView"
+            title="Fit to screen"
+          ></v-btn>
+          <v-btn
+            :icon="isAnimating ? 'mdi-pause' : 'mdi-play'"
+            size="small"
+            @click="toggleAnimation"
             :title="isAnimating ? 'Stop animation' : 'Resume animation'"
           ></v-btn>
-          <v-btn icon="mdi-refresh" size="small" @click="refreshGraph" title="Refresh"></v-btn>
+          <v-btn
+            icon="mdi-refresh"
+            size="small"
+            @click="refreshGraph"
+            title="Refresh"
+          ></v-btn>
         </div>
       </v-card>
     </div>
-    
+
     <!-- Data controls -->
     <div class="data-controls">
       <v-card class="pa-2">
@@ -268,26 +1119,19 @@
           >
             Fetch Global
           </v-btn>
-          
-          <v-btn
-            size="small"
-            prepend-icon="mdi-database"
-            @click="loadFromDb"
-          >
+
+          <v-btn size="small" prepend-icon="mdi-database" @click="loadFromDb">
             Load from DB
           </v-btn>
-          
-          <v-btn
-            size="small"
-            prepend-icon="mdi-delete"
-            @click="clearAll"
-          >
-            Clear
-          </v-btn>
+
+          <v-btn size="small" prepend-icon="mdi-delete" @click="clearAll"> Clear </v-btn>
 
           <v-divider class="my-1"></v-divider>
 
-          <v-tooltip :text="`${relayManager.stats.value.enabled} enabled, ${relayManager.stats.value.connected} connected`" location="end">
+          <v-tooltip
+            :text="`${relayManager.stats.value.enabled} enabled, ${relayManager.stats.value.connected} connected`"
+            location="end"
+          >
             <template #activator="{ props }">
               <v-chip
                 v-bind="props"
@@ -296,7 +1140,7 @@
                 prepend-icon="mdi-server-network"
                 :color="relayManager.stats.value.connected > 0 ? 'success' : 'error'"
                 @click="relayDialog.show = true"
-                style="cursor: pointer;"
+                style="cursor: pointer"
               >
                 {{ relayManager.stats.value.total }} Relays
               </v-chip>
@@ -305,7 +1149,7 @@
         </div>
       </v-card>
     </div>
-    
+
     <!-- Status bar -->
     <div class="status-bar">
       <v-chip size="small" variant="flat">
@@ -334,16 +1178,20 @@
         <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
       </template>
     </v-snackbar>
-    
+
     <!-- Context Menu -->
     <v-menu
       v-model="contextMenu.show"
       :location="'bottom'"
-      :style="{ position: 'fixed', left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      :style="{
+        position: 'fixed',
+        left: contextMenu.x + 'px',
+        top: contextMenu.y + 'px',
+      }"
     >
       <v-list density="compact" min-width="200">
         <v-list-subheader>{{ contextMenu.title }}</v-list-subheader>
-        
+
         <v-list-item
           v-for="action in contextMenu.actions"
           :key="action.label"
@@ -354,20 +1202,26 @@
         </v-list-item>
       </v-list>
     </v-menu>
-    
+
     <!-- Relay Manager Dialog -->
     <v-dialog v-model="relayDialog.show" max-width="700">
       <v-card>
         <v-card-title class="d-flex align-center justify-space-between">
           <span>Relay Manager</span>
-          <v-chip size="small" :color="relayManager.stats.value.connected > 0 ? 'success' : 'error'">
-            {{ relayManager.stats.value.connected }}/{{ relayManager.stats.value.enabled }} Connected
+          <v-chip
+            size="small"
+            :color="relayManager.stats.value.connected > 0 ? 'success' : 'error'"
+          >
+            {{ relayManager.stats.value.connected }}/{{
+              relayManager.stats.value.enabled
+            }}
+            Connected
           </v-chip>
         </v-card-title>
-        
+
         <v-divider></v-divider>
-        
-        <v-card-text style="max-height: 500px; overflow-y: auto;">
+
+        <v-card-text style="max-height: 500px; overflow-y: auto">
           <!-- Add New Relay -->
           <div class="mb-4">
             <v-text-field
@@ -391,7 +1245,7 @@
               </template>
             </v-text-field>
           </div>
-          
+
           <!-- Relay List -->
           <div v-if="relayManager.relays.value.length > 0">
             <div
@@ -399,12 +1253,12 @@
               :key="relay.url"
               class="relay-item"
             >
-              <v-icon 
+              <v-icon
                 size="small"
                 :color="getRelayStatusColor(relay.status)"
                 :icon="getRelayStatusIcon(relay.status)"
               ></v-icon>
-              
+
               <div class="relay-info">
                 <div class="relay-url">{{ relay.url }}</div>
                 <div class="relay-details">
@@ -425,7 +1279,7 @@
                   {{ relay.lastError }}
                 </div>
               </div>
-              
+
               <div class="relay-actions">
                 <v-btn
                   size="small"
@@ -444,7 +1298,7 @@
               </div>
             </div>
           </div>
-          
+
           <v-alert
             v-if="relayManager.relays.value.length === 0"
             type="info"
@@ -454,9 +1308,9 @@
             No relays configured. Add your first relay above.
           </v-alert>
         </v-card-text>
-        
+
         <v-divider></v-divider>
-        
+
         <v-card-actions>
           <v-btn
             prepend-icon="mdi-refresh"
@@ -470,49 +1324,165 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Saved Investigations Dialog -->
+    <v-dialog v-model="savedStatesDialog" max-width="800">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon class="mr-2">mdi-bookmark-multiple</v-icon>
+          Saved Investigations
+          <v-spacer></v-spacer>
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-plus"
+            @click="
+              createNewInvestigation();
+              savedStatesDialog = false;
+            "
+            class="mr-2"
+          >
+            New
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-import"
+            @click="importInvestigation()"
+          >
+            Import
+          </v-btn>
+        </v-card-title>
+
+        <v-card-text style="max-height: 60vh; overflow-y: auto">
+          <v-progress-linear v-if="loadingStates" indeterminate></v-progress-linear>
+
+          <div v-if="savedStates.length === 0 && !loadingStates" class="text-center py-8">
+            <v-icon size="64" color="grey-lighten-1">mdi-bookmark-off</v-icon>
+            <div class="text-h6 mt-4 text-grey">No saved investigations yet</div>
+            <div class="text-body-2 text-grey">
+              Your investigation will be auto-saved as you work
+            </div>
+          </div>
+
+          <v-list v-else lines="two">
+            <v-list-item
+              v-for="state in savedStates"
+              :key="state.id"
+              :active="state.id === currentInvestigationId"
+              @click="restoreInvestigation(state.id)"
+              class="mb-2"
+            >
+              <template #prepend>
+                <v-icon :color="state.id === currentInvestigationId ? 'primary' : 'grey'">
+                  {{
+                    state.id === currentInvestigationId
+                      ? "mdi-bookmark-check"
+                      : "mdi-bookmark"
+                  }}
+                </v-icon>
+              </template>
+
+              <v-list-item-title>{{ state.name }}</v-list-item-title>
+              <v-list-item-subtitle>
+                {{ state.graphData.nodes.length }} nodes,
+                {{ state.graphData.edges.length }} edges • {{ state.layoutType }} layout •
+                {{ new Date(state.updatedAt).toLocaleString() }}
+              </v-list-item-subtitle>
+
+              <template #append>
+                <div class="d-flex gap-1">
+                  <v-btn
+                    size="x-small"
+                    icon="mdi-content-copy"
+                    variant="text"
+                    @click.stop="duplicateInvestigation(state.id)"
+                    :title="'Duplicate'"
+                  ></v-btn>
+                  <v-btn
+                    size="x-small"
+                    icon="mdi-export"
+                    variant="text"
+                    @click.stop="exportInvestigation(state.id)"
+                    :title="'Export to file'"
+                  ></v-btn>
+                  <v-btn
+                    size="x-small"
+                    icon="mdi-delete"
+                    variant="text"
+                    color="error"
+                    @click.stop="deleteInvestigation(state.id)"
+                    :title="'Delete'"
+                  ></v-btn>
+                </div>
+              </template>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn @click="savedStatesDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Graph } from '@antv/g6'
-import { useGraphStore } from '../stores/graph'
-import { useEventFetcher } from '../composables/useEventFetcher'
-import { useRelayManager } from '../composables/useRelayManager'
-import { useNostr } from '../composables/useNostr'
-import { storeToRefs } from 'pinia'
-import MarkdownIt from 'markdown-it'
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { Graph, treeToGraphData } from "@antv/g6";
+import { useGraphStore } from "../stores/graph";
+import { useEventFetcher } from "../composables/useEventFetcher";
+import { useRelayManager } from "../composables/useRelayManager";
+import { useNostr } from "../composables/useNostr";
+import { storeToRefs } from "pinia";
+import MarkdownIt from "markdown-it";
+import {
+  saveGraphState,
+  updateGraphState,
+  loadGraphState,
+  getAllGraphStates,
+  deleteGraphState,
+  duplicateGraphState,
+  exportGraphState,
+  importGraphState,
+  setLastActiveState,
+  getLastActiveState,
+  type GraphState,
+} from "../db/graphStates";
 
 const md = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: true,
-})
+});
 
-const graphRef = ref<HTMLElement | null>(null)
-let graph: Graph | null = null
+const graphRef = ref<HTMLElement | null>(null);
+let graph: Graph | null = null;
+let layoutSettingsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-const layoutMode = ref('circular')
+const layoutMode = ref("circular");
 
 // All layout options with tree/non-tree classification
 const allLayoutOptions = [
-  { label: 'Circular Layout', value: 'circular', requiresTree: false },
-  { label: 'Concentric Layout', value: 'concentric', requiresTree: false },
-  { label: 'D3 Force-Directed Layout', value: 'd3-force', requiresTree: false },
-  { label: 'Force-directed Layout', value: 'force', requiresTree: false },
-  { label: 'ForceAtlas2 Layout', value: 'force-atlas2', requiresTree: false },
-  { label: 'Fruchterman Layout', value: 'fruchterman', requiresTree: false },
-  { label: 'Grid Layout', value: 'grid', requiresTree: false },
-  { label: 'MDS Layout', value: 'mds', requiresTree: false },
-  { label: 'Radial Layout', value: 'radial', requiresTree: false },
-  { label: 'Random Layout', value: 'random', requiresTree: false },
-  { label: 'AntV Dagre Layout', value: 'dagre', requiresTree: true },
-  { label: 'CompactBox Tree', value: 'compact-box', requiresTree: true },
-  { label: 'Dendrogram Tree', value: 'dendrogram', requiresTree: true },
-  { label: 'Mindmap Tree', value: 'mindmap', requiresTree: true },
-  { label: 'Indented Tree', value: 'indented', requiresTree: true },
-  { label: 'Fishbone Diagram', value: 'fishbone', requiresTree: true },
-]
+  { label: "Circular Layout", value: "circular", requiresTree: false },
+  { label: "Concentric Layout", value: "concentric", requiresTree: false },
+  { label: "D3 Force-Directed Layout", value: "d3-force", requiresTree: false },
+  { label: "Force-directed Layout", value: "force", requiresTree: false },
+  { label: "ForceAtlas2 Layout", value: "force-atlas2", requiresTree: false },
+  { label: "Fruchterman Layout", value: "fruchterman", requiresTree: false },
+  { label: "Grid Layout", value: "grid", requiresTree: false },
+  { label: "MDS Layout", value: "mds", requiresTree: false },
+  { label: "Radial Layout", value: "radial", requiresTree: false },
+  { label: "Random Layout", value: "random", requiresTree: false },
+  { label: "AntV Dagre Layout", value: "dagre", requiresTree: true },
+  { label: "CompactBox Tree", value: "compact-box", requiresTree: true },
+  { label: "Dendrogram Tree", value: "dendrogram", requiresTree: true },
+  { label: "Mindmap Tree", value: "mindmap", requiresTree: true },
+  { label: "Indented Tree", value: "indented", requiresTree: true },
+  { label: "Fishbone Diagram", value: "fishbone", requiresTree: true },
+];
 
 // Layout settings with defaults
 const layoutSettings = ref({
@@ -551,9 +1521,9 @@ const layoutSettings = ref({
     // Iteration control
     alpha: 1,
     alphaMin: 0.001,
-    alphaDecay: 0.06,  // Increased from 0.028 for faster animation
+    alphaDecay: 0.06, // Increased from 0.028 for faster animation
     alphaTarget: 0,
-    velocityDecay: 0.3,  // Decreased from 0.4 for faster movement
+    velocityDecay: 0.3, // Decreased from 0.4 for faster movement
   },
   force: {
     // Center position
@@ -582,21 +1552,21 @@ const layoutSettings = ref({
     divisions: 5,
     angleRatio: 1,
     clockwise: true,
-    ordering: 'degree',
+    ordering: "degree",
     startAngle: 0,
     endAngle: 6.28,
     nodeSize: 60,
     nodeSpacing: 10,
   },
   compactBox: {
-    direction: 'LR',
+    direction: "LR",
     nodeWidth: 60,
     nodeHeight: 60,
     hGap: 120,
     vGap: 80,
   },
   dagre: {
-    rankdir: 'LR',
+    rankdir: "LR",
     nodesep: 100,
     ranksep: 200,
   },
@@ -614,296 +1584,423 @@ const layoutSettings = ref({
     preventOverlap: true,
   },
   dendrogram: {
-    direction: 'LR',
+    direction: "LR",
     nodeSep: 50,
     rankSep: 100,
+    radial: false,
   },
   mindmap: {
-    direction: 'H',
+    direction: "H",
     hGap: 50,
     vGap: 50,
+    getHeight: 30,
+    getWidth: 100,
   },
-})
+  fruchterman: {
+    centerX: 0,
+    centerY: 0,
+    maxIteration: 1000,
+    gravity: 10,
+    speed: 5,
+    clustering: false,
+    clusterGravity: 10,
+  },
+});
 
-const graphStore = useGraphStore()
-const { nodeCount, edgeCount, graphData } = storeToRefs(graphStore)
+const graphStore = useGraphStore();
+const { nodeCount, edgeCount, graphData } = storeToRefs(graphStore);
 
 // Check if the current graph structure is tree-compatible (acyclic)
 const isTreeCompatible = computed(() => {
   if (!graphData.value || !graphData.value.edges || !graphData.value.nodes) {
-    return false // Empty graph is not a tree
+    return false; // Empty graph is not a tree
   }
-  
-  const edges = graphData.value.edges
-  const nodes = graphData.value.nodes
-  
+
+  const edges = graphData.value.edges;
+  const nodes = graphData.value.nodes;
+
   if (edges.length === 0 || nodes.length === 0) {
-    return false
+    return false;
   }
-  
+
   // Build adjacency list
-  const adj = new Map<string, string[]>()
-  const inDegree = new Map<string, number>()
-  
-  nodes.forEach(node => {
-    adj.set(node.id, [])
-    inDegree.set(node.id, 0)
-  })
-  
-  edges.forEach(edge => {
-    const neighbors = adj.get(edge.source) || []
-    neighbors.push(edge.target)
-    adj.set(edge.source, neighbors)
-    inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
-  })
-  
+  const adj = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+
+  nodes.forEach((node) => {
+    adj.set(node.id, []);
+    inDegree.set(node.id, 0);
+  });
+
+  edges.forEach((edge) => {
+    const neighbors = adj.get(edge.source) || [];
+    neighbors.push(edge.target);
+    adj.set(edge.source, neighbors);
+    inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
+  });
+
   // For a tree: each node (except root) should have exactly one parent
   // and there should be no cycles
-  const visited = new Set<string>()
-  const recStack = new Set<string>()
-  
+  const visited = new Set<string>();
+  const recStack = new Set<string>();
+
   function hasCycle(nodeId: string): boolean {
-    visited.add(nodeId)
-    recStack.add(nodeId)
-    
-    const neighbors = adj.get(nodeId) || []
+    visited.add(nodeId);
+    recStack.add(nodeId);
+
+    const neighbors = adj.get(nodeId) || [];
     for (const neighbor of neighbors) {
       if (!visited.has(neighbor)) {
-        if (hasCycle(neighbor)) return true
+        if (hasCycle(neighbor)) return true;
       } else if (recStack.has(neighbor)) {
-        return true // Cycle detected
+        return true; // Cycle detected
       }
     }
-    
-    recStack.delete(nodeId)
-    return false
+
+    recStack.delete(nodeId);
+    return false;
   }
-  
+
   // Check for cycles starting from nodes with 0 in-degree (potential roots)
   for (const node of nodes) {
     if (!visited.has(node.id)) {
       if (hasCycle(node.id)) {
-        return false // Cycle found
+        return false; // Cycle found
       }
     }
   }
-  
-  return true // No cycles, tree-compatible
-})
+
+  return true; // No cycles, tree-compatible
+});
 
 // Filter layout options based on graph structure
 const layoutOptions = computed(() => {
-  return allLayoutOptions.filter(option => {
+  return allLayoutOptions.filter((option) => {
     if (option.requiresTree) {
-      return isTreeCompatible.value
+      return isTreeCompatible.value;
     }
-    return true
-  })
-})
+    return true;
+  });
+});
 
-const { 
-  fetchGlobalFeed, 
-  fetchInitialEvents, 
-  fetchByAuthor, 
-  expandAroundEvent, 
-  fetchUserGraph, 
+const {
+  fetchGlobalFeed,
+  fetchInitialEvents,
+  fetchByAuthor,
+  expandAroundEvent,
+  fetchUserGraph,
   isFetching,
   expandReactions,
   expandReplies,
   expandReposts,
   expandMentions,
-  expandThread
-} = useEventFetcher()
-const { testAllRelayConnections, loadRelaysFromDB } = useNostr()
+  expandThread,
+} = useEventFetcher();
+const { testAllRelayConnections, loadRelaysFromDB } = useNostr();
 
 const snackbar = ref({
   show: false,
-  message: '',
-  color: 'success',
+  message: "",
+  color: "success",
   timeout: 3000,
-})
+});
 
 // Context menu state
 const contextMenu = ref({
   show: false,
   x: 0,
   y: 0,
-  title: '',
-  actions: [] as Array<{ label: string, icon: string, handler: () => void }>
-})
+  title: "",
+  actions: [] as Array<{ label: string; icon: string; handler: () => void }>,
+});
 
 // Search state
-const searchQuery = ref('')
-const searchResults = ref<Set<string>>(new Set())
-const searchActive = ref(false)
-const searchMode = ref<'AND' | 'OR'>('AND')
-const isSearching = ref(false)
+const searchQuery = ref("");
+const searchResults = ref<Set<string>>(new Set());
+const searchActive = ref(false);
+const searchMode = ref<"AND" | "OR">("AND");
+const isSearching = ref(false);
+
+// Investigation state management
+const currentInvestigationId = ref<string | null>(null);
+const currentInvestigationName = ref("Untitled Investigation");
+const isEditingName = ref(false);
+const savedStatesDialog = ref(false);
+const savedStates = ref<GraphState[]>([]);
+const loadingStates = ref(false);
 
 // Expanding nodes state (for loading indicators)
-const expandingNodes = ref<Set<string>>(new Set())
+const expandingNodes = ref<Set<string>>(new Set());
 
 // Track which stats have been expanded for each event
-type StatType = 'reactions' | 'replies' | 'reposts' | 'mentions' | 'thread'
-const expandedStats = ref<Map<string, Set<StatType>>>(new Map())
+type StatType = "reactions" | "replies" | "reposts" | "mentions" | "thread";
+const expandedStats = ref<Map<string, Set<StatType>>>(new Map());
+
+// Tree layout state - keep graph data, show tree as projection
+const activeNodeId = ref<string | null>(null); // Currently active/selected node
+const treeRootId = ref<string | null>(null); // Root node for tree layouts
+const originalGraphData = ref<{ nodes: any[]; edges: any[] } | null>(null); // Keep original graph data
+const selectedCardId = ref<string | null>(null); // Currently selected card for scrolling
 
 // Animation state
-const isAnimating = ref(true)
+const isAnimating = ref(true);
+
+// Edge styling configuration based on relationship hierarchy
+const edgeStyles = {
+  "authored-by": {
+    stroke: "#8b5cf6", // Purple - strongest (identity)
+    lineWidth: 3,
+    lineDash: [0], // Solid
+    label: "authored by",
+    opacity: 0.9,
+  },
+  reply: {
+    stroke: "#10b981", // Green - strong (conversation)
+    lineWidth: 2.5,
+    lineDash: [0], // Solid
+    label: "replies to",
+    opacity: 0.85,
+  },
+  reference: {
+    stroke: "#3b82f6", // Blue - medium-strong (content link)
+    lineWidth: 2,
+    lineDash: [0], // Solid
+    label: "references",
+    opacity: 0.8,
+  },
+  mention: {
+    stroke: "#f97316", // Orange - medium (user reference)
+    lineWidth: 2,
+    lineDash: [5, 3], // Dashed
+    label: "mentions",
+    opacity: 0.7,
+  },
+  repost: {
+    stroke: "#06b6d4", // Cyan - weaker (amplification)
+    lineWidth: 1.5,
+    lineDash: [5, 3], // Dashed
+    label: "reposts",
+    opacity: 0.6,
+  },
+  reaction: {
+    stroke: "#ec4899", // Pink - weakest (engagement)
+    lineWidth: 1,
+    lineDash: [2, 2], // Dotted
+    label: "reacts to",
+    opacity: 0.5,
+  },
+  default: {
+    stroke: "#999", // Gray - unknown
+    lineWidth: 1.5,
+    lineDash: [0],
+    label: "connected to",
+    opacity: 0.6,
+  },
+};
+
+// Helper: Get edge style based on type and marker
+function getEdgeStyle(edge: any) {
+  const type = edge.data?.type;
+  const marker = edge.data?.marker;
+
+  // Determine edge category
+  let category: keyof typeof edgeStyles = "default";
+
+  if (type === "authored-by") {
+    category = "authored-by";
+  } else if (type === "reference") {
+    // Differentiate reply from general reference
+    category = marker === "reply" ? "reply" : "reference";
+  } else if (type === "mention") {
+    category = "mention";
+  } else if (type === "repost") {
+    category = "repost";
+  } else if (type === "reaction") {
+    category = "reaction";
+  }
+
+  return edgeStyles[category];
+}
 
 // Relay manager
-const relayManager = useRelayManager()
-const relayDialog = ref({ show: false })
-const newRelayUrl = ref('')
-const testingConnections = ref(false)
+const relayManager = useRelayManager();
+const relayDialog = ref({ show: false });
+const newRelayUrl = ref("");
+const testingConnections = ref(false);
 
 // Helper: Get border color for event kind
 function getKindColor(kind: number): string {
   const colors: Record<number, string> = {
-    0: '#3b82f6',     // Profile - blue
-    1: '#10b981',     // Note - green
-    3: '#f59e0b',     // Contacts - amber
-    4: '#8b5cf6',     // DM - purple
-    5: '#ef4444',     // Delete - red
-    6: '#06b6d4',     // Repost - cyan
-    7: '#ec4899',     // Reaction - pink
-    9735: '#f59e0b',  // Zap - amber/gold
-    30023: '#6366f1', // Article - indigo
+    0: "#3b82f6", // Profile - blue
+    1: "#10b981", // Note - green
+    3: "#f59e0b", // Contacts - amber
+    4: "#8b5cf6", // DM - purple
+    5: "#ef4444", // Delete - red
+    6: "#06b6d4", // Repost - cyan
+    7: "#ec4899", // Reaction - pink
+    9735: "#f59e0b", // Zap - amber/gold
+    30023: "#6366f1", // Article - indigo
+  };
+  return colors[kind] || "#6b7280"; // gray default
+}
+
+// Helper: Get CSS class for active/root node marker
+function getNodeMarkerClass(nodeId: string): string {
+  const isActive = activeNodeId.value === nodeId;
+  const isRoot = treeRootId.value === nodeId;
+
+  if (isRoot && isTreeLayout(layoutMode.value)) {
+    return " tree-root-node"; // Red border for tree root
   }
-  return colors[kind] || '#6b7280' // gray default
+  if (isActive) {
+    return " active-node"; // Highlight for selected node
+  }
+  return "";
 }
 
 // Helper: Extract tags from event
 function extractTags(event: any): string[] {
-  if (!event.tags) return []
+  if (!event.tags) return [];
   return event.tags
-    .filter((tag: any) => tag[0] === 't' && tag[1])
-    .map((tag: any) => tag[1])
+    .filter((tag: any) => tag[0] === "t" && tag[1])
+    .map((tag: any) => tag[1]);
 }
 
 // Helper: Extract mentions from event
-function extractMentions(event: any): Array<{pubkey: string, relay?: string}> {
-  if (!event.tags) return []
+function extractMentions(event: any): Array<{ pubkey: string; relay?: string }> {
+  if (!event.tags) return [];
   return event.tags
-    .filter((tag: any) => tag[0] === 'p' && tag[1])
-    .map((tag: any) => ({ pubkey: tag[1], relay: tag[2] }))
+    .filter((tag: any) => tag[0] === "p" && tag[1])
+    .map((tag: any) => ({ pubkey: tag[1], relay: tag[2] }));
 }
 
 // Helper: Check if event is a reply
-function isReply(event: any): { isReply: boolean, replyTo?: string, root?: string } {
-  if (!event.tags) return { isReply: false }
-  
-  const eTags = event.tags.filter((tag: any) => tag[0] === 'e' && tag[1])
-  if (eTags.length === 0) return { isReply: false }
-  
+function isReply(event: any): { isReply: boolean; replyTo?: string; root?: string } {
+  if (!event.tags) return { isReply: false };
+
+  const eTags = event.tags.filter((tag: any) => tag[0] === "e" && tag[1]);
+  if (eTags.length === 0) return { isReply: false };
+
   // Find root and reply markers
-  const rootTag = eTags.find((tag: any) => tag[3] === 'root')
-  const replyTag = eTags.find((tag: any) => tag[3] === 'reply')
-  
+  const rootTag = eTags.find((tag: any) => tag[3] === "root");
+  const replyTag = eTags.find((tag: any) => tag[3] === "reply");
+
   return {
     isReply: true,
     root: rootTag ? rootTag[1] : eTags[0][1],
-    replyTo: replyTag ? replyTag[1] : (eTags.length > 1 ? eTags[eTags.length - 1][1] : undefined)
-  }
+    replyTo: replyTag
+      ? replyTag[1]
+      : eTags.length > 1
+      ? eTags[eTags.length - 1][1]
+      : undefined,
+  };
 }
 
 // Helper: Format relative time
 function getRelativeTime(timestamp: number): string {
-  const seconds = Math.floor(Date.now() / 1000 - timestamp)
-  
-  if (seconds < 60) return 'just now'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`
-  if (seconds < 2592000) return `${Math.floor(seconds / 604800)}w ago`
-  return new Date(timestamp * 1000).toLocaleDateString()
+  const seconds = Math.floor(Date.now() / 1000 - timestamp);
+
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  if (seconds < 2592000) return `${Math.floor(seconds / 604800)}w ago`;
+  return new Date(timestamp * 1000).toLocaleDateString();
 }
 
 // Helper: Count engagement metrics for an event
-function getEngagementMetrics(eventId: string): {
-  replies: number
-  reactions: number
-  reposts: number
-  zaps: number
+function getEngagementMetrics(
+  eventId: string
+): {
+  replies: number;
+  reactions: number;
+  reposts: number;
+  zaps: number;
 } {
-  const metrics = { replies: 0, reactions: 0, reposts: 0, zaps: 0 }
-  
+  const metrics = { replies: 0, reactions: 0, reposts: 0, zaps: 0 };
+
   // Count from all nodes in the graph
-  graphStore.nodes.forEach(node => {
-    const event = node.data?.event
-    if (!event) return
-    
+  graphStore.nodes.forEach((node) => {
+    const event = node.data?.event;
+    if (!event) return;
+
     // Check if this event references the target event
-    const eTags = event.tags?.filter((t: string[]) => t[0] === 'e') || []
-    const referencesEvent = eTags.some((t: string[]) => t[1] === eventId)
-    
+    const eTags = event.tags?.filter((t: string[]) => t[0] === "e") || [];
+    const referencesEvent = eTags.some((t: string[]) => t[1] === eventId);
+
     if (referencesEvent) {
-      if (event.kind === 1) metrics.replies++
-      else if (event.kind === 7) metrics.reactions++
-      else if (event.kind === 6) metrics.reposts++
-      else if (event.kind === 9735) metrics.zaps++
+      if (event.kind === 1) metrics.replies++;
+      else if (event.kind === 7) metrics.reactions++;
+      else if (event.kind === 6) metrics.reposts++;
+      else if (event.kind === 9735) metrics.zaps++;
     }
-  })
-  
-  return metrics
+  });
+
+  return metrics;
 }
 
 // Helper: Render HTML for event node
 function renderEventNode(d: any): string {
   // Handle tag nodes
-  if (d.data?.type === 'tag') {
-    const tag = d.data?.tag || ''
-    const nodeId = d.id || ''
-    const tagColor = d.data?.color || '#f59e0b'
-    
+  if (d.data?.type === "tag") {
+    const tag = d.data?.tag || "";
+    const nodeId = d.id || "";
+    const tagColor = d.data?.color || "#f59e0b";
+    const markerClass = getNodeMarkerClass(nodeId);
+
     return `
-      <div class="node-circle tag-node" data-item-id="${nodeId}" data-tag="${tag}" style="background: ${tagColor}; border: 4px solid ${tagColor};">
+      <div class="node-circle tag-node${markerClass}" data-item-id="${nodeId}" data-tag="${tag}" style="background: ${tagColor}; border: 4px solid ${tagColor};">
         <span class="node-tag-label">#${tag}</span>
       </div>
-    `
+    `;
   }
-  
+
   // Handle pubkey (author) nodes
-  if (d.data?.type === 'pubkey') {
-    const profile = d.data?.profile
-    const expanded = !!d.data?.expanded
-    
+  if (d.data?.type === "pubkey") {
+    const profile = d.data?.profile;
+    const expanded = !!d.data?.expanded;
+
     // If collapsed, show compact profile circle
     if (!expanded) {
-      const nodeId = d.id || ''
-      const pubkey = d.data?.pubkey || ''
-      
+      const nodeId = d.id || "";
+      const pubkey = d.data?.pubkey || "";
+      const markerClass = getNodeMarkerClass(nodeId);
+
       if (profile?.picture) {
         // Show profile picture
         return `
-          <div class="node-circle pubkey-node with-picture" data-item-id="${nodeId}" data-pubkey="${pubkey}" style="background: #fff;">
-            <img src="${profile.picture}" class="profile-picture" alt="${profile.name || 'User'}" />
+          <div class="node-circle pubkey-node with-picture${markerClass}" data-item-id="${nodeId}" data-pubkey="${pubkey}" style="background: #fff;">
+            <img src="${profile.picture}" class="profile-picture" alt="${
+          profile.name || "User"
+        }" />
           </div>
-        `
+        `;
       } else {
         // Show default user icon
         return `
-          <div class="node-circle pubkey-node" data-item-id="${nodeId}" data-pubkey="${pubkey}" style="background: #6366f1;">
+          <div class="node-circle pubkey-node${markerClass}" data-item-id="${nodeId}" data-pubkey="${pubkey}" style="background: #6366f1;">
             <span class="node-emoji">👤</span>
           </div>
-        `
+        `;
       }
     }
-    
+
     // Expanded: show profile details if available
     if (profile) {
       const safe = (s: string) =>
-        String(s || '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;')
-      
-      const displayName = safe(profile.name || profile.display_name || 'Unknown User')
-      const about = safe(profile.about || 'No bio available')
-      const nip05 = safe(profile.nip05 || '')
-      const pubkey = safe(d.data?.pubkey || '')
-      const nodeId = safe(d.id || '')
-      
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+
+      const displayName = safe(profile.name || profile.display_name || "Unknown User");
+      const about = safe(profile.about || "No bio available");
+      const nip05 = safe(profile.nip05 || "");
+      const pubkey = safe(d.data?.pubkey || "");
+      const nodeId = safe(d.id || "");
+
       return `
         <div class="event-node expanded profile-card" data-item-id="${nodeId}">
           <div class="event-titlebar" data-role="titlebar">
@@ -914,232 +2011,452 @@ function renderEventNode(d: any): string {
             <div class="event-close" data-role="close">×</div>
           </div>
           <div class="event-body">
-            ${profile.picture ? `
+            ${
+              profile.picture
+                ? `
               <div class="profile-picture-large">
                 <img src="${profile.picture}" alt="${displayName}" />
               </div>
-            ` : ''}
+            `
+                : ""
+            }
             <div class="event-meta">
               <div><strong>Name:</strong> ${displayName}</div>
-              ${nip05 ? `<div><strong>NIP-05:</strong> ${nip05}</div>` : ''}
+              ${nip05 ? `<div><strong>NIP-05:</strong> ${nip05}</div>` : ""}
               <div><strong>Pubkey:</strong> ${pubkey.slice(0, 16)}...</div>
             </div>
             <div class="event-content profile-bio">${about}</div>
           </div>
         </div>
-      `
+      `;
     }
-    
+
     // No profile data available
-    const noProfNodeId = d.id || ''
-    const noProfPubkey = d.data?.pubkey || ''
+    const noProfNodeId = d.id || "";
+    const noProfPubkey = d.data?.pubkey || "";
+    const markerClass = getNodeMarkerClass(noProfNodeId);
     return `
-      <div class="node-circle pubkey-node" data-item-id="${noProfNodeId}" data-pubkey="${noProfPubkey}" style="background: #6366f1;">
+      <div class="node-circle pubkey-node${markerClass}" data-item-id="${noProfNodeId}" data-pubkey="${noProfPubkey}" style="background: #6366f1;">
         <span class="node-emoji">👤</span>
       </div>
-    `
+    `;
   }
-  
+
   // Handle event nodes
-  const event = d.data?.event
-  if (!event) return '<div class="node-circle loading"><span>?</span></div>'
-  
-  const expanded = !!d.data?.expanded
-  const kind = event.kind
-  const typeLabel = getEventTypeLabel(kind)
-  const kindColor = getKindColor(kind)
-  
+  const event = d.data?.event;
+  if (!event) return '<div class="node-circle loading"><span>?</span></div>';
+
+  const expanded = !!d.data?.expanded;
+  const kind = event.kind;
+  const typeLabel = getEventTypeLabel(kind);
+  const kindColor = getKindColor(kind);
+
   // If collapsed, render as simple circle
   if (!expanded) {
-    const emoji = typeLabel.split(' ')[0] // Get just the emoji
-    
+    const emoji = typeLabel.split(" ")[0]; // Get just the emoji
+    const nodeId = d.id || "";
+    const markerClass = getNodeMarkerClass(nodeId);
+
     return `
-      <div class="node-circle kind-${kind}" style="background: ${kindColor}; border: 3px solid ${kindColor};">
+      <div class="node-circle kind-${kind}${markerClass}" style="background: ${kindColor}; border: 3px solid ${kindColor};">
         <span class="node-emoji">${emoji}</span>
       </div>
-    `
+    `;
   }
-  
+
   // Expanded: render detailed card with all metadata
   const safe = (s: string) =>
-    String(s || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-  
-  const nodeId = safe(d.id || '')
-  const timestamp = getRelativeTime(event.created_at)
-  const absoluteTime = new Date(event.created_at * 1000).toLocaleString()
-  
+    String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const nodeId = safe(d.id || "");
+  const timestamp = getRelativeTime(event.created_at);
+  const absoluteTime = new Date(event.created_at * 1000).toLocaleString();
+
   // Extract metadata
-  const tags = extractTags(event)
-  const mentions = extractMentions(event)
-  const threadInfo = isReply(event)
-  
+  const tags = extractTags(event);
+  const mentions = extractMentions(event);
+  const threadInfo = isReply(event);
+
   // Get engagement metrics
-  const metrics = getEngagementMetrics(event.id)
-  
+  const metrics = getEngagementMetrics(event.id);
+
   // Count mentions (e tags in this event)
-  const mentionsCount = event.tags?.filter((t: string[]) => t[0] === 'e').length || 0
-  
+  const mentionsCount = event.tags?.filter((t: string[]) => t[0] === "e").length || 0;
+
   // Check if part of thread (has parent or replies)
-  const hasThread = threadInfo.isReply || metrics.replies > 0
-  
+  const hasThread = threadInfo.isReply || metrics.replies > 0;
+
   // Get author info (from graph data if available)
-  const authorPubkey = safe(event.pubkey)
-  const authorDisplay = authorPubkey.slice(0, 8) + '...'
-  
+  const authorPubkey = safe(event.pubkey);
+  const authorDisplay = authorPubkey.slice(0, 8) + "...";
+
   // Format content with markdown for kind 1 and 30023
-  let bodyContent = ''
+  let bodyContent = "";
   if (kind === 1 || kind === 30023) {
-    bodyContent = md.render(event.content)
+    bodyContent = md.render(event.content);
   } else if (kind === 0) {
     try {
-      const profile = JSON.parse(event.content)
-      bodyContent = `<pre>${safe(JSON.stringify(profile, null, 2))}</pre>`
+      const profile = JSON.parse(event.content);
+      bodyContent = `<pre>${safe(JSON.stringify(profile, null, 2))}</pre>`;
     } catch {
-      bodyContent = safe(event.content)
+      bodyContent = safe(event.content);
     }
   } else {
-    bodyContent = safe(event.content)
+    bodyContent = safe(event.content);
   }
-  
+
   // Calculate dynamic height based on content
-  const contentLength = event.content.length
-  const baseHeight = 200
-  const heightPerChar = 0.3
-  const maxHeight = 600
-  const minHeight = 200
-  const dynamicHeight = Math.min(maxHeight, Math.max(minHeight, baseHeight + contentLength * heightPerChar))
-  
-  const isLoading = expandingNodes.value.has(nodeId)
-  
+  const contentLength = event.content.length;
+  const baseHeight = 200;
+  const heightPerChar = 0.3;
+  const maxHeight = 600;
+  const minHeight = 200;
+  const dynamicHeight = Math.min(
+    maxHeight,
+    Math.max(minHeight, baseHeight + contentLength * heightPerChar)
+  );
+
+  const isLoading = expandingNodes.value.has(nodeId);
+
   return `
-    <div class="nostr-card${isLoading ? ' node-loading' : ''}" 
-         data-item-id="${nodeId}" 
+    <div class="event-node expanded${isLoading ? " node-loading" : ""}"
+         data-item-id="${nodeId}"
          data-kind="${kind}"
-         data-author="${authorPubkey}"
-         style="border-left: 4px solid ${kindColor}; min-height: ${Math.min(300, dynamicHeight)}px;">
-      
-      <!-- Card Header -->
-      <div class="card-header">
-        <div class="card-header-left">
-          <span class="kind-badge" style="background: ${kindColor};">${typeLabel}</span>
-          ${threadInfo.isReply ? '<span class="thread-indicator" title="Reply">↩️</span>' : ''}
-          ${kind === 6 ? '<span class="thread-indicator" title="Repost">🔄</span>' : ''}
+         data-author="${authorPubkey}">
+
+      <!-- Titlebar matching profile card design -->
+      <div class="event-titlebar" data-role="titlebar" style="background: ${kindColor};">
+        <div class="event-left">
+          <span class="event-badge">${typeLabel}</span>
+          ${
+            threadInfo.isReply
+              ? '<span class="thread-indicator" title="Reply">↩️</span>'
+              : ""
+          }
+          ${kind === 6 ? '<span class="thread-indicator" title="Repost">🔄</span>' : ""}
+          <span class="event-title" title="${absoluteTime}">${timestamp}</span>
         </div>
-        <button class="card-close" data-role="close" title="Close">×</button>
+        <div class="event-close" data-role="close">×</div>
       </div>
-      
-      <!-- Author Info -->
-      <div class="card-author" data-author-pubkey="${authorPubkey}">
-        <div class="author-avatar" style="background: ${kindColor};">👤</div>
-        <div class="author-info">
-          <div class="author-name" title="${authorPubkey}">${authorDisplay}</div>
-          <div class="card-timestamp" title="${absoluteTime}">${timestamp}</div>
+
+      <!-- Event Body -->
+      <div class="event-body">
+        <!-- Author Info -->
+        <div class="event-author" data-author-pubkey="${authorPubkey}">
+          <div class="author-avatar" style="background: ${kindColor};">👤</div>
+          <div class="author-info">
+            <div class="author-name" title="${authorPubkey}">${authorDisplay}</div>
+          </div>
         </div>
+
+        <!-- Content -->
+        <div class="event-content markdown-content">
+          ${bodyContent}
+        </div>
+
+        <!-- Tags -->
+        ${
+          tags.length > 0
+            ? `
+          <div class="event-tags">
+            ${tags
+              .map(
+                (tag) =>
+                  `<span class="tag-badge" data-tag="${safe(tag)}">#${safe(tag)}</span>`
+              )
+              .join("")}
+          </div>
+        `
+            : ""
+        }
+
+        <!-- Mentions -->
+        ${
+          mentions.length > 0
+            ? `
+          <div class="event-mentions">
+            <span class="mentions-label">Mentioned:</span>
+            ${mentions
+              .slice(0, 3)
+              .map(
+                (m) =>
+                  `<span class="mention-badge" data-mention="${m.pubkey}" title="${
+                    m.pubkey
+                  }">@${m.pubkey.slice(0, 8)}...</span>`
+              )
+              .join("")}
+            ${
+              mentions.length > 3
+                ? `<span class="mention-more">+${mentions.length - 3} more</span>`
+                : ""
+            }
+          </div>
+        `
+            : ""
+        }
       </div>
-      
-      <!-- Content -->
-      <div class="card-content markdown-content">
-        ${bodyContent}
-      </div>
-      
-      <!-- Tags -->
-      ${tags.length > 0 ? `
-        <div class="card-tags">
-          ${tags.map(tag => `<span class="tag-badge" data-tag="${safe(tag)}">#${safe(tag)}</span>`).join('')}
-        </div>
-      ` : ''}
-      
-      <!-- Mentions -->
-      ${mentions.length > 0 ? `
-        <div class="card-mentions">
-          <span class="mentions-label">Mentioned:</span>
-          ${mentions.slice(0, 3).map(m => `<span class="mention-badge" data-mention="${m.pubkey}" title="${m.pubkey}">@${m.pubkey.slice(0, 8)}...</span>`).join('')}
-          ${mentions.length > 3 ? `<span class="mention-more">+${mentions.length - 3} more</span>` : ''}
-        </div>
-      ` : ''}
-      
-      <!-- Footer with engagement metrics -->
-      <div class="card-footer">
-        <div class="footer-stats">
-          <span class="footer-stat${metrics.replies > 0 ? ' has-count' : ' no-count'}" 
-                data-role="stat-replies" 
+
+      <!-- Footer: Always visible engagement metrics -->
+      <div class="event-footer">
+        <div class="event-stats">
+          <span class="stat-item${metrics.replies > 0 ? " has-count" : ""}"
+                data-role="stat-replies"
                 data-event-id="${nodeId}"
                 title="Left-click: refresh | Right-click: expand/hide/update">
             💬 ${metrics.replies || 0}
           </span>
-          <span class="footer-stat${metrics.reactions > 0 ? ' has-count' : ' no-count'}" 
-                data-role="stat-reactions" 
+          <span class="stat-item${metrics.reactions > 0 ? " has-count" : ""}"
+                data-role="stat-reactions"
                 data-event-id="${nodeId}"
                 title="Left-click: refresh | Right-click: expand/hide/update">
             ❤️ ${metrics.reactions || 0}
           </span>
-          <span class="footer-stat${metrics.reposts > 0 ? ' has-count' : ' no-count'}" 
-                data-role="stat-reposts" 
+          <span class="stat-item${metrics.reposts > 0 ? " has-count" : ""}"
+                data-role="stat-reposts"
                 data-event-id="${nodeId}"
                 title="Left-click: refresh | Right-click: expand/hide/update">
             🔄 ${metrics.reposts || 0}
           </span>
-          <span class="footer-stat${mentionsCount > 0 ? ' has-count' : ' no-count'}" 
-                data-role="stat-mentions" 
+          <span class="stat-item${mentionsCount > 0 ? " has-count" : ""}"
+                data-role="stat-mentions"
                 data-event-id="${nodeId}"
                 title="Left-click: refresh | Right-click: expand/hide/update">
             🔗 ${mentionsCount || 0}
           </span>
-          <span class="footer-stat${hasThread ? ' has-count' : ' no-count'}" 
-                data-role="stat-thread" 
+          <span class="stat-item${hasThread ? " has-count" : ""}"
+                data-role="stat-thread"
                 data-event-id="${nodeId}"
                 title="Left-click: refresh | Right-click: expand/hide/update">
-            🧵 ${hasThread ? '•' : '○'}
+            🧵 ${hasThread ? "•" : "○"}
           </span>
         </div>
       </div>
-      
+
     </div>
-  `
+  `;
 }
 
 function getEventTypeLabel(kind: number): string {
   const labels: Record<number, string> = {
-    0: '👤 Profile',
-    1: '📝 Note',
-    3: '👥 Contacts',
-    4: '💬 DM',
-    5: '🗑️ Delete',
-    6: '🔄 Repost',
-    7: '❤️ Reaction',
-    9735: '⚡ Zap',
-    30023: '📄 Article',
+    0: "👤 Profile",
+    1: "📝 Note",
+    3: "👥 Contacts",
+    4: "💬 DM",
+    5: "🗑️ Delete",
+    6: "🔄 Repost",
+    7: "❤️ Reaction",
+    9735: "⚡ Zap",
+    30023: "📄 Article",
+  };
+  return labels[kind] || `Kind ${kind}`;
+}
+
+// Tree layout helpers
+
+// Check if a layout requires tree data structure
+function isTreeLayout(layoutType: string): boolean {
+  const treeLayouts = [
+    "mindmap",
+    "dendrogram",
+    "compact-box",
+    "indented",
+    "dagre",
+    "fishbone",
+  ];
+  return treeLayouts.includes(layoutType);
+}
+
+// Find best root node for tree layout
+// Priority: 1) Current active node, 2) Node with most outgoing edges, 3) Node with no incoming edges
+function findBestRoot(nodes: any[], edges: any[]): string | null {
+  if (nodes.length === 0) return null;
+
+  // If there's an active node, use it
+  if (activeNodeId.value && nodes.some((n) => n.id === activeNodeId.value)) {
+    console.log("[Tree] Using active node as root:", activeNodeId.value);
+    return activeNodeId.value;
   }
-  return labels[kind] || `Kind ${kind}`
+
+  // If there's a previously set tree root, use it
+  if (treeRootId.value && nodes.some((n) => n.id === treeRootId.value)) {
+    console.log("[Tree] Using previously set root:", treeRootId.value);
+    return treeRootId.value;
+  }
+
+  // Count incoming and outgoing edges for each node
+  const inDegree = new Map<string, number>();
+  const outDegree = new Map<string, number>();
+
+  nodes.forEach((n) => {
+    inDegree.set(n.id, 0);
+    outDegree.set(n.id, 0);
+  });
+
+  edges.forEach((e) => {
+    outDegree.set(e.source, (outDegree.get(e.source) || 0) + 1);
+    inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+  });
+
+  // Find nodes with no incoming edges (potential roots)
+  const rootCandidates = nodes.filter((n) => (inDegree.get(n.id) || 0) === 0);
+
+  if (rootCandidates.length > 0) {
+    // From root candidates, pick the one with most outgoing edges
+    const bestRoot = rootCandidates.reduce((best, node) => {
+      const bestOut = outDegree.get(best.id) || 0;
+      const nodeOut = outDegree.get(node.id) || 0;
+      return nodeOut > bestOut ? node : best;
+    });
+    console.log("[Tree] Found root node (no incoming edges):", bestRoot.id);
+    return bestRoot.id;
+  }
+
+  // No clear root - pick node with best outgoing/incoming ratio
+  const bestNode = nodes.reduce((best, node) => {
+    const bestOut = outDegree.get(best.id) || 0;
+    const nodeOut = outDegree.get(node.id) || 0;
+    return nodeOut > bestOut ? node : best;
+  });
+
+  console.log("[Tree] Using node with most outgoing edges as root:", bestNode.id);
+  return bestNode.id;
+}
+
+// Convert graph data to tree data structure
+// Format: { id: string, children: [ { id: string, children: [...] } ] }
+function convertGraphToTree(nodes: any[], edges: any[], rootId: string): any {
+  console.log(
+    "[Tree] Converting graph to tree, root:",
+    rootId,
+    "nodes:",
+    nodes.length,
+    "edges:",
+    edges.length
+  );
+
+  // Build adjacency map: parent -> children
+  const childrenMap = new Map<string, any[]>();
+
+  edges.forEach((edge) => {
+    const parent = edge.source;
+    const child = edge.target;
+
+    if (!childrenMap.has(parent)) {
+      childrenMap.set(parent, []);
+    }
+    childrenMap.get(parent)!.push(nodes.find((n) => n.id === child));
+  });
+
+  // Recursively build tree (simple format - just id and children)
+  function buildTreeNode(nodeId: string, visited = new Set<string>()): any {
+    // Prevent cycles
+    if (visited.has(nodeId)) {
+      console.log("[Tree] Cycle detected at node:", nodeId);
+      return null;
+    }
+    visited.add(nodeId);
+
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return null;
+
+    const children = childrenMap.get(nodeId) || [];
+    const treeNode: any = {
+      id: node.id,
+      data: node.data, // Keep all node data for rendering
+    };
+
+    // Add children recursively
+    if (children.length > 0) {
+      treeNode.children = children
+        .map((child) => buildTreeNode(child.id, new Set(visited)))
+        .filter((child) => child !== null);
+    }
+
+    console.log(
+      "[Tree] Built node:",
+      treeNode.id,
+      "children:",
+      treeNode.children?.length || 0
+    );
+    return treeNode;
+  }
+
+  const tree = buildTreeNode(rootId);
+
+  // Handle disconnected graphs - find orphaned nodes
+  const visitedNodes = new Set<string>();
+
+  function collectVisited(node: any) {
+    if (!node) return;
+    visitedNodes.add(node.id);
+    if (node.children) {
+      node.children.forEach((child: any) => collectVisited(child));
+    }
+  }
+
+  collectVisited(tree);
+
+  const orphanedNodes = nodes.filter((n) => !visitedNodes.has(n.id));
+
+  if (orphanedNodes.length > 0) {
+    console.log(
+      "[Tree] Found",
+      orphanedNodes.length,
+      "orphaned nodes, creating super-tree"
+    );
+
+    // Create invisible super-root
+    const superTree = {
+      id: "__super_root__",
+      data: {
+        isVirtualRoot: true, // Mark as virtual so we can hide it
+      },
+      children: [tree],
+    };
+
+    // Add orphaned nodes as additional children of super-root
+    orphanedNodes.forEach((node) => {
+      const orphanTree = buildTreeNode(node.id);
+      if (orphanTree) {
+        superTree.children.push(orphanTree);
+      }
+    });
+
+    console.log("[Tree] Super-tree created with", superTree.children.length, "sub-trees");
+    return superTree;
+  }
+
+  console.log("[Tree] Single connected tree created");
+  return tree;
 }
 
 // Helper: Get layout config based on layout type
 function getLayoutConfig(type: string) {
-  const settings = layoutSettings.value
-  
+  const settings = layoutSettings.value;
+
   // Helper: Get actual node size - always use card size for layout spacing
   // (Visual rendering stays small when collapsed, but layout reserves full card space)
   const getNodeSize = (_node: any) => {
-    return Math.max(400, 300) // Use max dimension for radius calculations (always card size)
-  }
-  
+    return Math.max(400, 300); // Use max dimension for radius calculations (always card size)
+  };
+
   const getNodeWidth = (_node: any) => {
-    return 400 // Always reserve card width
-  }
-  
+    return 400; // Always reserve card width
+  };
+
   const getNodeHeight = (_node: any) => {
-    return 300 // Always reserve card height
-  }
-  
+    return 300; // Always reserve card height
+  };
+
   switch (type) {
-    case 'force':
+    case "force":
       return {
-        type: 'force',
+        type: "force",
         center: [settings.force.centerX, settings.force.centerY],
         linkDistance: settings.force.linkDistance,
         edgeStrength: settings.force.edgeStrength,
@@ -1152,11 +2469,11 @@ function getLayoutConfig(type: string) {
         alpha: settings.force.alpha,
         alphaDecay: settings.force.alphaDecay,
         alphaMin: settings.force.alphaMin,
-      }
-      
-    case 'd3-force':
+      };
+
+    case "d3-force":
       return {
-        type: 'd3-force',
+        type: "d3-force",
         link: {
           distance: settings.d3Force.linkDistance,
           strength: settings.d3Force.linkStrength,
@@ -1175,37 +2492,43 @@ function getLayoutConfig(type: string) {
         },
         collide: {
           radius: (node: any) => {
-            const baseSize = getNodeSize(node)
+            const baseSize = getNodeSize(node);
             // Add collision radius offset to the actual node size
-            return baseSize / 2 + settings.d3Force.collideRadius
+            return baseSize / 2 + settings.d3Force.collideRadius;
           },
           strength: settings.d3Force.collideStrength,
           iterations: settings.d3Force.collideIterations,
         },
-        forceX: settings.d3Force.forceXEnabled ? {
-          x: settings.d3Force.forceXX,
-          strength: settings.d3Force.forceXStrength,
-        } : undefined,
-        forceY: settings.d3Force.forceYEnabled ? {
-          y: settings.d3Force.forceYY,
-          strength: settings.d3Force.forceYStrength,
-        } : undefined,
-        radial: settings.d3Force.radialEnabled ? {
-          x: settings.d3Force.radialX,
-          y: settings.d3Force.radialY,
-          radius: settings.d3Force.radialRadius,
-          strength: settings.d3Force.radialStrength,
-        } : undefined,
+        forceX: settings.d3Force.forceXEnabled
+          ? {
+              x: settings.d3Force.forceXX,
+              strength: settings.d3Force.forceXStrength,
+            }
+          : undefined,
+        forceY: settings.d3Force.forceYEnabled
+          ? {
+              y: settings.d3Force.forceYY,
+              strength: settings.d3Force.forceYStrength,
+            }
+          : undefined,
+        radial: settings.d3Force.radialEnabled
+          ? {
+              x: settings.d3Force.radialX,
+              y: settings.d3Force.radialY,
+              radius: settings.d3Force.radialRadius,
+              strength: settings.d3Force.radialStrength,
+            }
+          : undefined,
         alpha: settings.d3Force.alpha,
         alphaMin: settings.d3Force.alphaMin,
         alphaDecay: settings.d3Force.alphaDecay,
         alphaTarget: settings.d3Force.alphaTarget,
         velocityDecay: settings.d3Force.velocityDecay,
-      }
-      
-    case 'circular':
+      };
+
+    case "circular":
       return {
-        type: 'circular',
+        type: "circular",
         radius: settings.circular.radius,
         startRadius: settings.circular.startRadius,
         endRadius: settings.circular.endRadius,
@@ -1217,477 +2540,579 @@ function getLayoutConfig(type: string) {
         endAngle: settings.circular.endAngle,
         nodeSize: getNodeSize,
         nodeSpacing: settings.circular.nodeSpacing,
-      }
-      
-    case 'compact-box':
+      };
+
+    case "compact-box":
       return {
-        type: 'compact-box',
+        type: "compact-box",
         direction: settings.compactBox.direction,
         getHeight: (node: any) => getNodeHeight(node),
         getWidth: (node: any) => getNodeWidth(node),
         getVGap: () => settings.compactBox.vGap,
         getHGap: () => settings.compactBox.hGap,
-      }
-      
-    case 'dagre':
+      };
+
+    case "dagre":
       return {
-        type: 'dagre',
+        type: "dagre",
         rankdir: settings.dagre.rankdir,
         nodesep: settings.dagre.nodesep,
         ranksep: settings.dagre.ranksep,
-      }
-      
-    case 'concentric':
+      };
+
+    case "concentric":
       return {
-        type: 'concentric',
+        type: "concentric",
         minNodeSpacing: settings.concentric.minNodeSpacing,
         preventOverlap: settings.concentric.preventOverlap,
         nodeSize: getNodeSize,
-      }
-      
-    case 'grid':
+      };
+
+    case "grid":
       return {
-        type: 'grid',
+        type: "grid",
         rows: settings.grid.rows,
         cols: settings.grid.cols,
         preventOverlap: settings.grid.preventOverlap,
         nodeSize: getNodeSize,
-      }
-      
-    case 'radial':
+      };
+
+    case "radial":
       return {
-        type: 'radial',
+        type: "radial",
         unitRadius: settings.radial.unitRadius,
         preventOverlap: settings.radial.preventOverlap,
         nodeSize: getNodeSize,
-      }
-      
-    case 'dendrogram':
+      };
+
+    case "dendrogram":
       return {
-        type: 'dendrogram',
+        type: "dendrogram",
         direction: settings.dendrogram.direction,
         nodeSep: settings.dendrogram.nodeSep,
         rankSep: settings.dendrogram.rankSep,
-      }
-      
-    case 'mindmap':
+        radial: settings.dendrogram.radial,
+      };
+
+    case "mindmap":
       return {
-        type: 'mindmap',
+        type: "mindmap",
         direction: settings.mindmap.direction,
         getHGap: () => settings.mindmap.hGap,
         getVGap: () => settings.mindmap.vGap,
-      }
-      
-    case 'indented':
+        getHeight: () => settings.mindmap.getHeight,
+        getWidth: () => settings.mindmap.getWidth,
+      };
+
+    case "indented":
       return {
-        type: 'indented',
+        type: "indented",
         indent: 80,
-      }
-      
-    case 'fruchterman':
+      };
+
+    case "fruchterman":
       return {
-        type: 'fruchterman',
-        gravity: 5,
-        speed: 5,
-      }
-      
-    case 'force-atlas2':
+        type: "fruchterman",
+        center: [settings.fruchterman.centerX, settings.fruchterman.centerY],
+        maxIteration: settings.fruchterman.maxIteration,
+        gravity: settings.fruchterman.gravity,
+        speed: settings.fruchterman.speed,
+        clustering: settings.fruchterman.clustering,
+        clusterGravity: settings.fruchterman.clusterGravity,
+      };
+
+    case "force-atlas2":
       return {
-        type: 'force-atlas2',
+        type: "force-atlas2",
         kr: 100,
         kg: 1,
-      }
-      
-    case 'mds':
+      };
+
+    case "mds":
       return {
-        type: 'mds',
+        type: "mds",
         linkDistance: 100,
-      }
-      
-    case 'fishbone':
+      };
+
+    case "fishbone":
       return {
-        type: 'fishbone',
-        direction: 'LR',
-      }
-      
-    case 'random':
+        type: "fishbone",
+        direction: "LR",
+      };
+
+    case "random":
       return {
-        type: 'random',
-      }
-      
+        type: "random",
+      };
+
     default:
       return {
         type,
         preventOverlap: true,
-      }
+      };
   }
 }
 
 // Apply layout settings
 function applyLayoutSettings() {
   if (graph) {
-    graph.setLayout(getLayoutConfig(layoutMode.value))
-    graph.layout()
-    
-    setTimeout(() => {
-      if (graph) {
-        graph.stopLayout()
-      }
-    }, 4000)
+    // Stop current layout to prevent glitches from multiple simultaneous animations
+    graph.stopLayout();
+    graph.setLayout(getLayoutConfig(layoutMode.value));
+    graph.layout();
+    isAnimating.value = true;
   }
 }
 
 // Watch for tree compatibility changes and switch layout if needed
 watch(isTreeCompatible, (isTree) => {
-  const currentOption = allLayoutOptions.find(opt => opt.value === layoutMode.value)
+  const currentOption = allLayoutOptions.find((opt) => opt.value === layoutMode.value);
   if (currentOption?.requiresTree && !isTree) {
     // Current layout requires tree but graph is not tree-compatible
     // Switch to a safe default layout
-    layoutMode.value = 'circular'
-    showMessage('Graph structure changed - switched to circular layout', 'info')
+    layoutMode.value = "circular";
+    showMessage("Graph structure changed - switched to circular layout", "info");
   }
-})
+});
 
 // Context menu helper functions
-function showContextMenu(x: number, y: number, title: string, actions: Array<{ label: string, icon: string, handler: () => void }>) {
-  contextMenu.value = { show: true, x, y, title, actions }
+function showContextMenu(
+  x: number,
+  y: number,
+  title: string,
+  actions: Array<{ label: string; icon: string; handler: () => void }>
+) {
+  contextMenu.value = { show: true, x, y, title, actions };
+}
+
+// Make a node the root for tree layouts
+function makeTreeRoot(nodeId: string) {
+  console.log("[Tree] Setting new root node:", nodeId);
+  treeRootId.value = nodeId;
+  activeNodeId.value = nodeId;
+
+  // If we're currently in a tree layout, rebuild the tree with new root
+  if (isTreeLayout(layoutMode.value) && graph && originalGraphData.value) {
+    const nodes = originalGraphData.value.nodes;
+    const edges = originalGraphData.value.edges;
+    const treeData = convertGraphToTree(nodes, edges, nodeId);
+    const graphDataFromTree = treeToGraphData(treeData);
+
+    graph.setData(graphDataFromTree);
+    graph.layout();
+    graph.render();
+
+    setTimeout(() => {
+      graph.fitView();
+    }, 500);
+  }
+
+  contextMenu.value.show = false;
 }
 
 // Show stat context menu (right-click on stat)
 function showStatContextMenu(x: number, y: number, eventId: string, statType: StatType) {
   const labels = {
-    reactions: 'Reactions',
-    replies: 'Replies',
-    reposts: 'Reposts',
-    mentions: 'Mentions',
-    thread: 'Thread'
-  }
-  
-  const icons = {
-    reactions: 'mdi-heart',
-    replies: 'mdi-comment',
-    reposts: 'mdi-repeat',
-    mentions: 'mdi-at',
-    thread: 'mdi-message-outline'
-  }
-  
-  // Check if this stat is already expanded
-  const isExpanded = expandedStats.value.get(eventId)?.has(statType) || false
-  
-  const actions = []
-  
-  if (!isExpanded) {
-    actions.push({ 
-      label: `Expand ${labels[statType]}`, 
-      icon: icons[statType], 
-      handler: () => handleExpandStat(eventId, statType) 
-    })
-  } else {
-    actions.push({ 
-      label: `Hide ${labels[statType]}`, 
-      icon: 'mdi-eye-off', 
-      handler: () => handleHideStat(eventId, statType) 
-    })
-  }
-  
-  actions.push({ 
-    label: `Update ${labels[statType]}`, 
-    icon: 'mdi-refresh', 
-    handler: () => handleRefreshStat(eventId, statType) 
-  })
-  
-  showContextMenu(x, y, labels[statType], actions)
-}
+    reactions: "Reactions",
+    replies: "Replies",
+    reposts: "Reposts",
+    mentions: "Mentions",
+    thread: "Thread",
+  };
 
+  const icons = {
+    reactions: "mdi-heart",
+    replies: "mdi-comment",
+    reposts: "mdi-repeat",
+    mentions: "mdi-at",
+    thread: "mdi-message-outline",
+  };
+
+  // Check if this stat is already expanded
+  const isExpanded = expandedStats.value.get(eventId)?.has(statType) || false;
+
+  const actions = [];
+
+  if (!isExpanded) {
+    actions.push({
+      label: `Expand ${labels[statType]}`,
+      icon: icons[statType],
+      handler: () => handleExpandStat(eventId, statType),
+    });
+  } else {
+    actions.push({
+      label: `Hide ${labels[statType]}`,
+      icon: "mdi-eye-off",
+      handler: () => handleHideStat(eventId, statType),
+    });
+  }
+
+  actions.push({
+    label: `Update ${labels[statType]}`,
+    icon: "mdi-refresh",
+    handler: () => handleRefreshStat(eventId, statType),
+  });
+
+  showContextMenu(x, y, labels[statType], actions);
+}
 
 // Helper: Create or get author node
 function createAuthorNode(pubkey: string, profile?: any) {
   // Check if author node already exists
-  const existingNode = graphStore.nodes.find((n: any) => n.id === pubkey)
+  const existingNode = graphStore.nodes.find((n: any) => n.id === pubkey);
   if (existingNode) {
     // Update profile if provided
     if (profile) {
-      existingNode.data.profile = profile
-      existingNode.label = `👤 ${profile.name || profile.display_name || pubkey.slice(0, 8)}`
+      existingNode.data.profile = profile;
+      existingNode.label = `👤 ${
+        profile.name || profile.display_name || pubkey.slice(0, 8)
+      }`;
     }
-    return pubkey
+    return pubkey;
   }
-  
+
   // Create new author node
-  const displayName = profile?.name || profile?.display_name || pubkey.slice(0, 8)
+  const displayName = profile?.name || profile?.display_name || pubkey.slice(0, 8);
   const authorNode = {
     id: pubkey,
     label: `👤 ${displayName}`,
     data: {
-      type: 'pubkey',
+      type: "pubkey",
       pubkey: pubkey,
       profile: profile || null,
-    }
-  }
-  
-  graphStore.addNode(authorNode)
-  return pubkey
+    },
+  };
+
+  graphStore.addNode(authorNode);
+  return pubkey;
 }
 
 // Helper: Connect events to author node
 function connectEventsToAuthor(pubkey: string) {
-  const edges: any[] = []
-  
+  const edges: any[] = [];
+
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
-    if (!event) return
-    
+    const event = node.data?.event;
+    if (!event) return;
+
     // Check if this event is by this author
     if (event.pubkey === pubkey) {
-      // Create edge from event to author
+      // Create edge from author to event (author created it)
+      const edge = {
+        source: pubkey,
+        target: event.id,
+        data: {
+          type: "authored-by",
+        },
+      };
+      edges.push(edge);
+    }
+  });
+
+  edges.forEach((edge) => graphStore.addEdge(edge));
+  return edges.length;
+}
+
+// Helper: Connect events that mention this pubkey
+function connectMentionsToAuthor(pubkey: string) {
+  const edges: any[] = [];
+
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event;
+    if (!event) return;
+
+    // Check if this event mentions this pubkey (has a 'p' tag)
+    const mentions = event.tags?.filter(
+      (tag: any) => tag[0] === "p" && tag[1] === pubkey
+    );
+
+    if (mentions && mentions.length > 0) {
+      // Create edge from event to mentioned author
       const edge = {
         source: event.id,
         target: pubkey,
         data: {
-          type: 'authored-by',
-        }
-      }
-      edges.push(edge)
+          type: "mention",
+          pubkey: pubkey,
+        },
+      };
+      edges.push(edge);
     }
-  })
-  
-  edges.forEach(edge => graphStore.addEdge(edge))
-  return edges.length
+  });
+
+  edges.forEach((edge) => graphStore.addEdge(edge));
+  return edges.length;
 }
 
 // Helper: Create or get tag node
 function createTagNode(tag: string) {
-  const tagNodeId = `tag:${tag.toLowerCase()}`
-  
+  const tagNodeId = `tag:${tag.toLowerCase()}`;
+
   // Check if tag node already exists
-  const existingNode = graphStore.nodes.find((n: any) => n.id === tagNodeId)
+  const existingNode = graphStore.nodes.find((n: any) => n.id === tagNodeId);
   if (existingNode) {
-    return tagNodeId
+    return tagNodeId;
   }
-  
+
   // Create new tag node
   const tagNode = {
     id: tagNodeId,
     label: `#${tag}`,
     data: {
-      type: 'tag',
+      type: "tag",
       tag: tag,
-      color: '#f59e0b',
-    }
-  }
-  
-  graphStore.addNode(tagNode)
-  return tagNodeId
+      color: "#f59e0b",
+    },
+  };
+
+  graphStore.addNode(tagNode);
+  return tagNodeId;
 }
 
 // Helper: Connect events with tag to tag node
 function connectEventsToTag(tag: string, tagNodeId: string) {
-  const edges: any[] = []
-  
+  const edges: any[] = [];
+
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
-    if (!event) return
-    
+    const event = node.data?.event;
+    if (!event) return;
+
     // Check if this event has the tag
-    const hasTag = event.tags?.some((t: string[]) => 
-      t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
-    )
-    
+    const hasTag = event.tags?.some(
+      (t: string[]) => t[0] === "t" && t[1]?.toLowerCase() === tag.toLowerCase()
+    );
+
     if (hasTag) {
       // Create edge from event to tag node
       const edge = {
         source: event.id,
         target: tagNodeId,
         data: {
-          type: 'has-tag',
-        }
-      }
-      edges.push(edge)
+          type: "has-tag",
+        },
+      };
+      edges.push(edge);
     }
-  })
-  
+  });
+
   // Add all edges
-  edges.forEach(edge => graphStore.addEdge(edge))
-  return edges.length
+  edges.forEach((edge) => graphStore.addEdge(edge));
+  return edges.length;
 }
 
 // Expansion functions
 async function expandByTag(tag: string) {
-  contextMenu.value.show = false
-  showMessage(`Expanding posts with #${tag}...`, 'info')
-  
+  contextMenu.value.show = false;
+  showMessage(`Expanding posts with #${tag}...`, "info");
+
   try {
     // Create tag node
-    const tagNodeId = createTagNode(tag)
-    
+    const tagNodeId = createTagNode(tag);
+
     // Fetch events with this t-tag
     const events = await fetchInitialEvents([
-      { '#t': [tag.toLowerCase()], kinds: [1, 30023], limit: 50 }
-    ])
-    
+      { "#t": [tag.toLowerCase()], kinds: [1, 30023], limit: 50 },
+    ]);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      
+      graphStore.updateWithEvents(events);
+
       // Connect all events (new and existing) to tag node
-      const connectedCount = connectEventsToTag(tag, tagNodeId)
-      
-      showMessage(`Added ${events.length} posts with #${tag} (${connectedCount} connections)`, 'success')
+      const connectedCount = connectEventsToTag(tag, tagNodeId);
+
+      showMessage(
+        `Added ${events.length} posts with #${tag} (${connectedCount} connections)`,
+        "success"
+      );
     } else {
       // Still create connections to existing events
-      const connectedCount = connectEventsToTag(tag, tagNodeId)
-      showMessage(`No new posts found, but connected ${connectedCount} existing posts to #${tag}`, 'info')
+      const connectedCount = connectEventsToTag(tag, tagNodeId);
+      showMessage(
+        `No new posts found, but connected ${connectedCount} existing posts to #${tag}`,
+        "info"
+      );
     }
   } catch (error) {
-    console.error('Failed to expand tag posts:', error)
-    showMessage('Failed to expand tag posts', 'error')
+    console.error("Failed to expand tag posts:", error);
+    showMessage("Failed to expand tag posts", "error");
   }
 }
 
 async function expandAuthorPosts(pubkey: string) {
-  contextMenu.value.show = false
-  showMessage(`Expanding posts by ${pubkey.slice(0, 8)}...`, 'info')
-  
+  contextMenu.value.show = false;
+  showMessage(`Expanding posts by ${pubkey.slice(0, 8)}...`, "info");
+
   try {
-    const events = await fetchByAuthor(pubkey, 50)
-    const notes = events.filter(e => e.kind === 1)
-    
+    const events = await fetchByAuthor(pubkey, 50);
+    const notes = events.filter((e) => e.kind === 1);
+
     if (notes.length > 0) {
-      graphStore.updateWithEvents(notes)
+      graphStore.updateWithEvents(notes);
       // Create author node and connect all events by this author
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`Added ${notes.length} posts from author (${connectedCount} connections)`, 'success')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `Added ${notes.length} posts (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "success"
+      );
     } else {
       // Still create author node even if no new posts
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`No new posts found, but connected ${connectedCount} existing posts`, 'info')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `No new posts (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "info"
+      );
     }
   } catch (error) {
-    console.error('Failed to expand author posts:', error)
-    showMessage('Failed to expand author posts', 'error')
+    console.error("Failed to expand author posts:", error);
+    showMessage("Failed to expand author posts", "error");
   }
 }
 
 async function expandAuthorArticles(pubkey: string) {
-  contextMenu.value.show = false
-  showMessage(`Expanding articles by ${pubkey.slice(0, 8)}...`, 'info')
-  
+  contextMenu.value.show = false;
+  showMessage(`Expanding articles by ${pubkey.slice(0, 8)}...`, "info");
+
   try {
     const events = await fetchInitialEvents([
-      { authors: [pubkey], kinds: [30023], limit: 20 }
-    ])
-    
+      { authors: [pubkey], kinds: [30023], limit: 20 },
+    ]);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
+      graphStore.updateWithEvents(events);
       // Create author node and connect all events by this author
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`Added ${events.length} articles from author (${connectedCount} connections)`, 'success')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `Added ${events.length} articles (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "success"
+      );
     } else {
       // Still create author node even if no new articles
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`No new articles found, but connected ${connectedCount} existing events`, 'info')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `No new articles (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "info"
+      );
     }
   } catch (error) {
-    console.error('Failed to expand author articles:', error)
-    showMessage('Failed to expand author articles', 'error')
+    console.error("Failed to expand author articles:", error);
+    showMessage("Failed to expand author articles", "error");
   }
 }
 
 async function expandAuthorProfile(pubkey: string) {
-  contextMenu.value.show = false
-  showMessage(`Fetching profile for ${pubkey.slice(0, 8)}...`, 'info')
-  
+  contextMenu.value.show = false;
+  showMessage(`Fetching profile for ${pubkey.slice(0, 8)}...`, "info");
+
   try {
     const events = await fetchInitialEvents([
-      { authors: [pubkey], kinds: [0], limit: 1 }
-    ])
-    
+      { authors: [pubkey], kinds: [0], limit: 1 },
+    ]);
+
     if (events.length > 0) {
       // Parse profile data
-      let profile = null
+      let profile = null;
       try {
-        profile = JSON.parse(events[0].content)
+        profile = JSON.parse(events[0].content);
       } catch (e) {
-        console.warn('Failed to parse profile:', e)
+        console.warn("Failed to parse profile:", e);
       }
-      
+
       // Create/update author node with profile data
-      createAuthorNode(pubkey, profile)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`Profile loaded (${connectedCount} events connected)`, 'success')
+      createAuthorNode(pubkey, profile);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `Profile loaded (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "success"
+      );
     } else {
       // Create author node without profile
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`Profile not found, but connected ${connectedCount} events`, 'info')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `Profile not found (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "info"
+      );
     }
   } catch (error) {
-    console.error('Failed to fetch author profile:', error)
-    showMessage('Failed to fetch author profile', 'error')
+    console.error("Failed to fetch author profile:", error);
+    showMessage("Failed to fetch author profile", "error");
   }
 }
 
 async function expandAuthorNetwork(pubkey: string) {
-  contextMenu.value.show = false
-  showMessage(`Expanding social network for ${pubkey.slice(0, 8)}...`, 'info')
-  
+  contextMenu.value.show = false;
+  showMessage(`Expanding social network for ${pubkey.slice(0, 8)}...`, "info");
+
   try {
-    const { follows, events } = await fetchUserGraph(pubkey)
-    
+    const { follows, events } = await fetchUserGraph(pubkey);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
+      graphStore.updateWithEvents(events);
       // Create author node and connect events
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`Added ${events.length} events from network (${follows.length} contacts, ${connectedCount} connections)`, 'success')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `Added ${events.length} events from network (${follows.length} contacts, ${connectedCount} authored, ${mentionCount} mentioned)`,
+        "success"
+      );
     } else {
       // Still create author node
-      createAuthorNode(pubkey)
-      const connectedCount = connectEventsToAuthor(pubkey)
-      showMessage(`No new network data found, but connected ${connectedCount} events`, 'info')
+      createAuthorNode(pubkey);
+      const connectedCount = connectEventsToAuthor(pubkey);
+      const mentionCount = connectMentionsToAuthor(pubkey);
+      showMessage(
+        `No new network data (${connectedCount} authored, ${mentionCount} mentioned)`,
+        "info"
+      );
     }
   } catch (error) {
-    console.error('Failed to expand social network:', error)
-    showMessage('Failed to expand social network', 'error')
+    console.error("Failed to expand social network:", error);
+    showMessage("Failed to expand social network", "error");
   }
 }
 
 async function expandOriginalPost(eventId: string) {
-  contextMenu.value.show = false
-  showMessage('Finding original post...', 'info')
-  
+  contextMenu.value.show = false;
+  showMessage("Finding original post...", "info");
+
   try {
     // Get the current event to find what it references
-    const currentNode = graphStore.nodes.find(n => n.id === eventId)
+    const currentNode = graphStore.nodes.find((n) => n.id === eventId);
     if (!currentNode?.data?.event) {
-      showMessage('Event not found in graph', 'warning')
-      return
+      showMessage("Event not found in graph", "warning");
+      return;
     }
-    
-    const event = currentNode.data.event
-    const eTag = event.tags.find((t: string[]) => t[0] === 'e')
-    
+
+    const event = currentNode.data.event;
+    const eTag = event.tags.find((t: string[]) => t[0] === "e");
+
     if (eTag && eTag[1]) {
-      const referencedId = eTag[1]
-      const events = await fetchInitialEvents([
-        { ids: [referencedId] }
-      ])
-      
+      const referencedId = eTag[1];
+      const events = await fetchInitialEvents([{ ids: [referencedId] }]);
+
       if (events.length > 0) {
-        graphStore.updateWithEvents(events)
-        showMessage('Original post added', 'success')
+        graphStore.updateWithEvents(events);
+        showMessage("Original post added", "success");
       } else {
-        showMessage('Original post not found', 'info')
+        showMessage("Original post not found", "info");
       }
     } else {
-      showMessage('No referenced post found', 'warning')
+      showMessage("No referenced post found", "warning");
     }
   } catch (error) {
-    console.error('Failed to find original post:', error)
-    showMessage('Failed to find original post', 'error')
+    console.error("Failed to find original post:", error);
+    showMessage("Failed to find original post", "error");
   }
 }
 
@@ -1695,466 +3120,470 @@ async function expandOriginalPost(eventId: string) {
 
 // Refresh stat count (left-click)
 async function handleRefreshStat(eventId: string, statType: StatType) {
-  contextMenu.value.show = false
-  
-  if (statType === 'reactions') {
-    await handleRefreshReactions(eventId)
-  } else if (statType === 'replies') {
-    await handleRefreshReplies(eventId)
-  } else if (statType === 'reposts') {
-    await handleRefreshReposts(eventId)
-  } else if (statType === 'mentions') {
-    await handleRefreshMentions(eventId)
-  } else if (statType === 'thread') {
-    await handleRefreshThread(eventId)
+  contextMenu.value.show = false;
+
+  if (statType === "reactions") {
+    await handleRefreshReactions(eventId);
+  } else if (statType === "replies") {
+    await handleRefreshReplies(eventId);
+  } else if (statType === "reposts") {
+    await handleRefreshReposts(eventId);
+  } else if (statType === "mentions") {
+    await handleRefreshMentions(eventId);
+  } else if (statType === "thread") {
+    await handleRefreshThread(eventId);
   }
 }
 
 // Expand stat (right-click > Expand)
 async function handleExpandStat(eventId: string, statType: StatType) {
-  contextMenu.value.show = false
-  
+  contextMenu.value.show = false;
+
   // Mark as expanded
   if (!expandedStats.value.has(eventId)) {
-    expandedStats.value.set(eventId, new Set())
+    expandedStats.value.set(eventId, new Set());
   }
-  expandedStats.value.get(eventId)!.add(statType)
-  
-  if (statType === 'reactions') {
-    await handleExpandReactions(eventId)
-  } else if (statType === 'replies') {
-    await handleExpandReplies(eventId)
-  } else if (statType === 'reposts') {
-    await handleExpandReposts(eventId)
-  } else if (statType === 'mentions') {
-    await handleExpandMentions(eventId)
-  } else if (statType === 'thread') {
-    await handleExpandThread(eventId)
+  expandedStats.value.get(eventId)!.add(statType);
+
+  if (statType === "reactions") {
+    await handleExpandReactions(eventId);
+  } else if (statType === "replies") {
+    await handleExpandReplies(eventId);
+  } else if (statType === "reposts") {
+    await handleExpandReposts(eventId);
+  } else if (statType === "mentions") {
+    await handleExpandMentions(eventId);
+  } else if (statType === "thread") {
+    await handleExpandThread(eventId);
   }
 }
 
 // Hide stat nodes (right-click > Hide)
 function handleHideStat(eventId: string, statType: StatType) {
-  contextMenu.value.show = false
-  
+  contextMenu.value.show = false;
+
   // Mark as not expanded
-  expandedStats.value.get(eventId)?.delete(statType)
-  
+  expandedStats.value.get(eventId)?.delete(statType);
+
   // Remove nodes related to this stat type
-  const nodesToRemove: string[] = []
-  
+  const nodesToRemove: string[] = [];
+
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
-    if (!event) return
-    
+    const event = node.data?.event;
+    if (!event) return;
+
     // Check if this node is related to the stat type
-    const eTags = event.tags?.filter((t: string[]) => t[0] === 'e') || []
-    const referencesEvent = eTags.some((t: string[]) => t[1] === eventId)
-    
+    const eTags = event.tags?.filter((t: string[]) => t[0] === "e") || [];
+    const referencesEvent = eTags.some((t: string[]) => t[1] === eventId);
+
     if (referencesEvent) {
-      if (statType === 'reactions' && event.kind === 7) {
-        nodesToRemove.push(node.id)
-      } else if (statType === 'replies' && (event.kind === 1 || event.kind === 30023)) {
-        nodesToRemove.push(node.id)
-      } else if (statType === 'reposts' && event.kind === 6) {
-        nodesToRemove.push(node.id)
-      } else if (statType === 'mentions') {
+      if (statType === "reactions" && event.kind === 7) {
+        nodesToRemove.push(node.id);
+      } else if (statType === "replies" && (event.kind === 1 || event.kind === 30023)) {
+        nodesToRemove.push(node.id);
+      } else if (statType === "reposts" && event.kind === 6) {
+        nodesToRemove.push(node.id);
+      } else if (statType === "mentions") {
         // For mentions, check if this event was mentioned in the source event's tags
-        const sourceNode = graphStore.nodes.find((n: any) => n.id === eventId)
+        const sourceNode = graphStore.nodes.find((n: any) => n.id === eventId);
         if (sourceNode?.data?.event) {
           const mentionedIds = sourceNode.data.event.tags
-            .filter((t: string[]) => t[0] === 'e')
-            .map((t: string[]) => t[1])
+            .filter((t: string[]) => t[0] === "e")
+            .map((t: string[]) => t[1]);
           if (mentionedIds.includes(event.id)) {
-            nodesToRemove.push(node.id)
+            nodesToRemove.push(node.id);
           }
         }
       }
     }
-    
+
     // For thread, remove parent and replies
-    if (statType === 'thread') {
+    if (statType === "thread") {
       // Check if this is a parent or reply
-      const isParentOf = event.tags?.some((t: string[]) => t[0] === 'e' && t[1] === eventId)
-      const sourceEvent = graphStore.nodes.find((n: any) => n.id === eventId)?.data?.event
-      const isChildOf = sourceEvent?.tags?.some((t: string[]) => t[0] === 'e' && t[1] === event.id)
-      
+      const isParentOf = event.tags?.some(
+        (t: string[]) => t[0] === "e" && t[1] === eventId
+      );
+      const sourceEvent = graphStore.nodes.find((n: any) => n.id === eventId)?.data
+        ?.event;
+      const isChildOf = sourceEvent?.tags?.some(
+        (t: string[]) => t[0] === "e" && t[1] === event.id
+      );
+
       if (isParentOf || isChildOf) {
-        nodesToRemove.push(node.id)
+        nodesToRemove.push(node.id);
       }
     }
-  })
-  
+  });
+
   // Remove nodes and their edges
-  nodesToRemove.forEach(nodeId => {
-    graphStore.removeNode(nodeId)
-  })
-  
-  showMessage(`Hidden ${nodesToRemove.length} ${statType} nodes`, 'success')
+  nodesToRemove.forEach((nodeId) => {
+    graphStore.removeNode(nodeId);
+  });
+
+  showMessage(`Hidden ${nodesToRemove.length} ${statType} nodes`, "success");
 }
 
 // Refresh handlers (fetch new count, update graph if expanded)
 async function handleRefreshReactions(eventId: string) {
-  expandingNodes.value.add(eventId)
-  showMessage('Refreshing reactions...', 'info')
-  
+  expandingNodes.value.add(eventId);
+  showMessage("Refreshing reactions...", "info");
+
   try {
-    const events = await expandReactions(eventId)
-    
+    const events = await expandReactions(eventId);
+
     // If expanded, update graph
-    const isExpanded = expandedStats.value.get(eventId)?.has('reactions')
+    const isExpanded = expandedStats.value.get(eventId)?.has("reactions");
     if (isExpanded && events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Updated ${events.length} reactions`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Updated ${events.length} reactions`, "success");
     } else {
-      showMessage(`Found ${events.length} reactions`, 'info')
+      showMessage(`Found ${events.length} reactions`, "info");
       // Trigger re-render to update count
-      if (graph) graph.render()
+      if (graph) graph.render();
     }
   } catch (error) {
-    console.error('Failed to refresh reactions:', error)
-    showMessage('Failed to refresh reactions', 'error')
+    console.error("Failed to refresh reactions:", error);
+    showMessage("Failed to refresh reactions", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleRefreshReplies(eventId: string) {
-  expandingNodes.value.add(eventId)
-  showMessage('Refreshing replies...', 'info')
-  
+  expandingNodes.value.add(eventId);
+  showMessage("Refreshing replies...", "info");
+
   try {
-    const events = await expandReplies(eventId)
-    
-    const isExpanded = expandedStats.value.get(eventId)?.has('replies')
+    const events = await expandReplies(eventId);
+
+    const isExpanded = expandedStats.value.get(eventId)?.has("replies");
     if (isExpanded && events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Updated ${events.length} replies`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Updated ${events.length} replies`, "success");
     } else {
-      showMessage(`Found ${events.length} replies`, 'info')
-      if (graph) graph.render()
+      showMessage(`Found ${events.length} replies`, "info");
+      if (graph) graph.render();
     }
   } catch (error) {
-    console.error('Failed to refresh replies:', error)
-    showMessage('Failed to refresh replies', 'error')
+    console.error("Failed to refresh replies:", error);
+    showMessage("Failed to refresh replies", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleRefreshReposts(eventId: string) {
-  expandingNodes.value.add(eventId)
-  showMessage('Refreshing reposts...', 'info')
-  
+  expandingNodes.value.add(eventId);
+  showMessage("Refreshing reposts...", "info");
+
   try {
-    const events = await expandReposts(eventId)
-    
-    const isExpanded = expandedStats.value.get(eventId)?.has('reposts')
+    const events = await expandReposts(eventId);
+
+    const isExpanded = expandedStats.value.get(eventId)?.has("reposts");
     if (isExpanded && events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Updated ${events.length} reposts`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Updated ${events.length} reposts`, "success");
     } else {
-      showMessage(`Found ${events.length} reposts`, 'info')
-      if (graph) graph.render()
+      showMessage(`Found ${events.length} reposts`, "info");
+      if (graph) graph.render();
     }
   } catch (error) {
-    console.error('Failed to refresh reposts:', error)
-    showMessage('Failed to refresh reposts', 'error')
+    console.error("Failed to refresh reposts:", error);
+    showMessage("Failed to refresh reposts", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleRefreshMentions(eventId: string) {
-  expandingNodes.value.add(eventId)
-  showMessage('Refreshing mentions...', 'info')
-  
+  expandingNodes.value.add(eventId);
+  showMessage("Refreshing mentions...", "info");
+
   try {
-    const events = await expandMentions(eventId)
-    
-    const isExpanded = expandedStats.value.get(eventId)?.has('mentions')
+    const events = await expandMentions(eventId);
+
+    const isExpanded = expandedStats.value.get(eventId)?.has("mentions");
     if (isExpanded && events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Updated ${events.length} mentions`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Updated ${events.length} mentions`, "success");
     } else {
-      showMessage(`Found ${events.length} mentions`, 'info')
-      if (graph) graph.render()
+      showMessage(`Found ${events.length} mentions`, "info");
+      if (graph) graph.render();
     }
   } catch (error) {
-    console.error('Failed to refresh mentions:', error)
-    showMessage('Failed to refresh mentions', 'error')
+    console.error("Failed to refresh mentions:", error);
+    showMessage("Failed to refresh mentions", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleRefreshThread(eventId: string) {
-  expandingNodes.value.add(eventId)
-  showMessage('Refreshing thread...', 'info')
-  
+  expandingNodes.value.add(eventId);
+  showMessage("Refreshing thread...", "info");
+
   try {
-    const { parent, replies } = await expandThread(eventId)
-    const allEvents = [...(parent ? [parent] : []), ...replies]
-    
-    const isExpanded = expandedStats.value.get(eventId)?.has('thread')
+    const { parent, replies } = await expandThread(eventId);
+    const allEvents = [...(parent ? [parent] : []), ...replies];
+
+    const isExpanded = expandedStats.value.get(eventId)?.has("thread");
     if (isExpanded && allEvents.length > 0) {
-      graphStore.updateWithEvents(allEvents)
-      const parts = []
-      if (parent) parts.push('parent')
-      if (replies.length > 0) parts.push(`${replies.length} replies`)
-      showMessage(`Updated ${parts.join(' and ')}`, 'success')
+      graphStore.updateWithEvents(allEvents);
+      const parts = [];
+      if (parent) parts.push("parent");
+      if (replies.length > 0) parts.push(`${replies.length} replies`);
+      showMessage(`Updated ${parts.join(" and ")}`, "success");
     } else {
-      showMessage(`Found ${allEvents.length} thread events`, 'info')
-      if (graph) graph.render()
+      showMessage(`Found ${allEvents.length} thread events`, "info");
+      if (graph) graph.render();
     }
   } catch (error) {
-    console.error('Failed to refresh thread:', error)
-    showMessage('Failed to refresh thread', 'error')
+    console.error("Failed to refresh thread:", error);
+    showMessage("Failed to refresh thread", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 // Expand handlers (add to graph and mark as expanded)
 async function handleExpandReactions(eventId: string) {
-  contextMenu.value.show = false
-  expandingNodes.value.add(eventId)
-  showMessage('Expanding reactions...', 'info')
-  
+  contextMenu.value.show = false;
+  expandingNodes.value.add(eventId);
+  showMessage("Expanding reactions...", "info");
+
   try {
-    const events = await expandReactions(eventId)
-    
+    const events = await expandReactions(eventId);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} reactions`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Added ${events.length} reactions`, "success");
     } else {
-      showMessage('No reactions found', 'info')
+      showMessage("No reactions found", "info");
     }
   } catch (error) {
-    console.error('Failed to expand reactions:', error)
-    showMessage('Failed to expand reactions', 'error')
+    console.error("Failed to expand reactions:", error);
+    showMessage("Failed to expand reactions", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleExpandReplies(eventId: string) {
-  contextMenu.value.show = false
-  expandingNodes.value.add(eventId)
-  showMessage('Expanding replies...', 'info')
-  
+  contextMenu.value.show = false;
+  expandingNodes.value.add(eventId);
+  showMessage("Expanding replies...", "info");
+
   try {
-    const events = await expandReplies(eventId)
-    
+    const events = await expandReplies(eventId);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} replies`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Added ${events.length} replies`, "success");
     } else {
-      showMessage('No replies found', 'info')
+      showMessage("No replies found", "info");
     }
   } catch (error) {
-    console.error('Failed to expand replies:', error)
-    showMessage('Failed to expand replies', 'error')
+    console.error("Failed to expand replies:", error);
+    showMessage("Failed to expand replies", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleExpandReposts(eventId: string) {
-  contextMenu.value.show = false
-  expandingNodes.value.add(eventId)
-  showMessage('Expanding reposts...', 'info')
-  
+  contextMenu.value.show = false;
+  expandingNodes.value.add(eventId);
+  showMessage("Expanding reposts...", "info");
+
   try {
-    const events = await expandReposts(eventId)
-    
+    const events = await expandReposts(eventId);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} reposts`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Added ${events.length} reposts`, "success");
     } else {
-      showMessage('No reposts found', 'info')
+      showMessage("No reposts found", "info");
     }
   } catch (error) {
-    console.error('Failed to expand reposts:', error)
-    showMessage('Failed to expand reposts', 'error')
+    console.error("Failed to expand reposts:", error);
+    showMessage("Failed to expand reposts", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleExpandMentions(eventId: string) {
-  contextMenu.value.show = false
-  expandingNodes.value.add(eventId)
-  showMessage('Expanding mentions...', 'info')
-  
+  contextMenu.value.show = false;
+  expandingNodes.value.add(eventId);
+  showMessage("Expanding mentions...", "info");
+
   try {
-    const events = await expandMentions(eventId)
-    
+    const events = await expandMentions(eventId);
+
     if (events.length > 0) {
-      graphStore.updateWithEvents(events)
-      showMessage(`Added ${events.length} mentions`, 'success')
+      graphStore.updateWithEvents(events);
+      showMessage(`Added ${events.length} mentions`, "success");
     } else {
-      showMessage('No mentions found', 'info')
+      showMessage("No mentions found", "info");
     }
   } catch (error) {
-    console.error('Failed to expand mentions:', error)
-    showMessage('Failed to expand mentions', 'error')
+    console.error("Failed to expand mentions:", error);
+    showMessage("Failed to expand mentions", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
 
 async function handleExpandThread(eventId: string) {
-  contextMenu.value.show = false
-  expandingNodes.value.add(eventId)
-  showMessage('Expanding thread...', 'info')
-  
+  contextMenu.value.show = false;
+  expandingNodes.value.add(eventId);
+  showMessage("Expanding thread...", "info");
+
   try {
-    const { parent, replies } = await expandThread(eventId)
-    const allEvents = [...(parent ? [parent] : []), ...replies]
-    
+    const { parent, replies } = await expandThread(eventId);
+    const allEvents = [...(parent ? [parent] : []), ...replies];
+
     if (allEvents.length > 0) {
-      graphStore.updateWithEvents(allEvents)
-      const parts = []
-      if (parent) parts.push('parent')
-      if (replies.length > 0) parts.push(`${replies.length} replies`)
-      showMessage(`Added ${parts.join(' and ')}`, 'success')
+      graphStore.updateWithEvents(allEvents);
+      const parts = [];
+      if (parent) parts.push("parent");
+      if (replies.length > 0) parts.push(`${replies.length} replies`);
+      showMessage(`Added ${parts.join(" and ")}`, "success");
     } else {
-      showMessage('No thread context found', 'info')
+      showMessage("No thread context found", "info");
     }
   } catch (error) {
-    console.error('Failed to expand thread:', error)
-    showMessage('Failed to expand thread', 'error')
+    console.error("Failed to expand thread:", error);
+    showMessage("Failed to expand thread", "error");
   } finally {
-    expandingNodes.value.delete(eventId)
+    expandingNodes.value.delete(eventId);
   }
 }
-
 
 // Filter functions
 function filterByTag(tag: string) {
-  contextMenu.value.show = false
-  showMessage(`Filtering to show only #${tag}`, 'info')
-  
-  if (!graph) return
-  
+  contextMenu.value.show = false;
+  showMessage(`Filtering to show only #${tag}`, "info");
+
+  if (!graph) return;
+
   // Create tag node
-  const tagNodeId = createTagNode(tag)
-  
+  const tagNodeId = createTagNode(tag);
+
   // Connect all events with this tag to the tag node
-  const connectedCount = connectEventsToTag(tag, tagNodeId)
-  
+  const connectedCount = connectEventsToTag(tag, tagNodeId);
+
   // Use visibility property to hide/show nodes
-  const updates: any[] = []
+  const updates: any[] = [];
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
-    const isTagNode = node.data?.type === 'tag'
-    const hasTags = event?.tags?.some((t: string[]) => 
-      t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
-    )
-    
+    const event = node.data?.event;
+    const isTagNode = node.data?.type === "tag";
+    const hasTags = event?.tags?.some(
+      (t: string[]) => t[0] === "t" && t[1]?.toLowerCase() === tag.toLowerCase()
+    );
+
     updates.push({
       id: node.id,
       style: {
         ...node.style,
-        visibility: (hasTags || isTagNode) ? 'visible' : 'hidden'
-      }
-    })
-  })
-  
+        visibility: hasTags || isTagNode ? "visible" : "hidden",
+      },
+    });
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  showMessage(`Filtered to #${tag} (${connectedCount} connections)`, 'success')
+
+  showMessage(`Filtered to #${tag} (${connectedCount} connections)`, "success");
 }
 
 function filterByAuthor(pubkey: string) {
-  contextMenu.value.show = false
-  showMessage(`Filtering to show only ${pubkey.slice(0, 8)}...`, 'info')
-  
-  if (!graph) return
-  
+  contextMenu.value.show = false;
+  showMessage(`Filtering to show only ${pubkey.slice(0, 8)}...`, "info");
+
+  if (!graph) return;
+
   // Use visibility property to hide/show nodes
-  const updates: any[] = []
+  const updates: any[] = [];
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
+    const event = node.data?.event;
     updates.push({
       id: node.id,
       style: {
         ...node.style,
-        visibility: event?.pubkey === pubkey ? 'visible' : 'hidden'
-      }
-    })
-  })
-  
+        visibility: event?.pubkey === pubkey ? "visible" : "hidden",
+      },
+    });
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  showMessage('Filtered to author', 'success')
+
+  showMessage("Filtered to author", "success");
 }
 
 function filterRelated(eventId: string) {
-  contextMenu.value.show = false
-  showMessage('Filtering to show related content...', 'info')
-  
-  if (!graph) return
-  
+  contextMenu.value.show = false;
+  showMessage("Filtering to show related content...", "info");
+
+  if (!graph) return;
+
   // Find all connected nodes (1 hop away)
-  const connectedIds = new Set<string>([eventId])
+  const connectedIds = new Set<string>([eventId]);
   graphStore.edges.forEach((edge: any) => {
-    if (edge.source === eventId) connectedIds.add(edge.target)
-    if (edge.target === eventId) connectedIds.add(edge.source)
-  })
-  
+    if (edge.source === eventId) connectedIds.add(edge.target);
+    if (edge.target === eventId) connectedIds.add(edge.source);
+  });
+
   // Use visibility to hide unconnected nodes
-  const updates: any[] = []
+  const updates: any[] = [];
   graphStore.nodes.forEach((node: any) => {
     updates.push({
       id: node.id,
       style: {
         ...node.style,
-        visibility: connectedIds.has(node.id) ? 'visible' : 'hidden'
-      }
-    })
-  })
-  
+        visibility: connectedIds.has(node.id) ? "visible" : "hidden",
+      },
+    });
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  showMessage(`Showing ${connectedIds.size} related nodes`, 'success')
+
+  showMessage(`Showing ${connectedIds.size} related nodes`, "success");
 }
 
 // Highlight functions
 function highlightByTag(tag: string) {
-  contextMenu.value.show = false
-  showMessage(`Highlighting posts with #${tag}`, 'info')
-  
-  if (!graph) return
-  
+  contextMenu.value.show = false;
+  showMessage(`Highlighting posts with #${tag}`, "info");
+
+  if (!graph) return;
+
   // Add highlight style to matching nodes
-  const updates: any[] = []
-  
+  const updates: any[] = [];
+
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
-    const hasTags = event?.tags?.some((t: string[]) => 
-      t[0] === 't' && t[1]?.toLowerCase() === tag.toLowerCase()
-    )
-    
+    const event = node.data?.event;
+    const hasTags = event?.tags?.some(
+      (t: string[]) => t[0] === "t" && t[1]?.toLowerCase() === tag.toLowerCase()
+    );
+
     if (hasTags) {
       updates.push({
         id: node.id,
         style: {
           ...node.style,
-          stroke: '#fbbf24',
+          stroke: "#fbbf24",
           lineWidth: 4,
-        }
-      })
+        },
+      });
     } else {
       // Reset to default style
       updates.push({
@@ -2163,39 +3592,39 @@ function highlightByTag(tag: string) {
           ...node.style,
           stroke: undefined,
           lineWidth: undefined,
-        }
-      })
+        },
+      });
     }
-  })
-  
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  showMessage(`Highlighted #${tag}`, 'success')
+
+  showMessage(`Highlighted #${tag}`, "success");
 }
 
 function highlightByAuthor(pubkey: string) {
-  contextMenu.value.show = false
-  showMessage(`Highlighting content by ${pubkey.slice(0, 8)}...`, 'info')
-  
-  if (!graph) return
-  
+  contextMenu.value.show = false;
+  showMessage(`Highlighting content by ${pubkey.slice(0, 8)}...`, "info");
+
+  if (!graph) return;
+
   // Add highlight style to author's nodes
-  const updates: any[] = []
-  
+  const updates: any[] = [];
+
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
+    const event = node.data?.event;
     if (event?.pubkey === pubkey) {
       updates.push({
         id: node.id,
         style: {
           ...node.style,
-          stroke: '#8b5cf6',
+          stroke: "#8b5cf6",
           lineWidth: 4,
-        }
-      })
+        },
+      });
     } else {
       // Reset to default style
       updates.push({
@@ -2204,63 +3633,65 @@ function highlightByAuthor(pubkey: string) {
           ...node.style,
           stroke: undefined,
           lineWidth: undefined,
-        }
-      })
+        },
+      });
     }
-  })
-  
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  showMessage('Highlighted author', 'success')
+
+  showMessage("Highlighted author", "success");
 }
 
 // Clear all filters - show all nodes
 function clearFilters() {
-  if (!graph) return
-  
+  if (!graph) return;
+
   // Don't clear search - it's independent
   // Only clear other filters (visibility from filterBy* functions)
-  
-  const updates: any[] = []
+
+  const updates: any[] = [];
   graphStore.nodes.forEach((node: any) => {
     // If search is active, preserve search visibility state
     // Otherwise, make all nodes visible
-    const visibility = searchActive.value 
-      ? (searchResults.value.has(node.id) ? 'visible' : 'hidden')
-      : 'visible'
-    
+    const visibility = searchActive.value
+      ? searchResults.value.has(node.id)
+        ? "visible"
+        : "hidden"
+      : "visible";
+
     updates.push({
       id: node.id,
       style: {
         ...node.style,
         visibility: visibility,
-      }
-    })
-  })
-  
+      },
+    });
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  const message = searchActive.value 
-    ? 'Filters cleared (search still active)' 
-    : 'All filters cleared'
-  showMessage(message, 'success')
+
+  const message = searchActive.value
+    ? "Filters cleared (search still active)"
+    : "All filters cleared";
+  showMessage(message, "success");
 }
 
 // Reset all highlights - remove custom styles
 function resetHighlights() {
-  if (!graph) return
-  
+  if (!graph) return;
+
   // Don't clear search - only remove highlight styles
   // Search has its own clear button
-  
-  const updates: any[] = []
-  
+
+  const updates: any[] = [];
+
   graphStore.nodes.forEach((node: any) => {
     updates.push({
       id: node.id,
@@ -2268,16 +3699,16 @@ function resetHighlights() {
         ...node.style,
         stroke: undefined,
         lineWidth: undefined,
-      }
-    })
-  })
-  
+      },
+    });
+  });
+
   if (updates.length > 0) {
-    graph.updateNodeData(updates)
-    graph.render()
+    graph.updateNodeData(updates);
+    graph.render();
   }
-  
-  showMessage('Highlights cleared', 'success')
+
+  showMessage("Highlights cleared", "success");
 }
 
 // Search Functions
@@ -2286,360 +3717,406 @@ function resetHighlights() {
 // Perform local search on current graph
 function performSearch() {
   if (!graph || !searchQuery.value.trim()) {
-    clearSearch()
-    return
+    clearSearch();
+    return;
   }
-  
-  const query = searchQuery.value.toLowerCase().trim()
-  const matchingNodeIds = new Set<string>()
-  
+
+  const query = searchQuery.value.toLowerCase().trim();
+  const matchingNodeIds = new Set<string>();
+
   // Search through all nodes
   graphStore.nodes.forEach((node: any) => {
-    const event = node.data?.event
+    const event = node.data?.event;
     if (!event) {
       // Check if it's an author/tag node
-      if (node.data?.type === 'pubkey') {
-        const pubkey = node.data?.pubkey || ''
-        const profile = node.data?.profile
-        const name = profile?.name || profile?.display_name || ''
-        
-        if (pubkey.toLowerCase().includes(query) || 
-            name.toLowerCase().includes(query)) {
-          matchingNodeIds.add(node.id)
+      if (node.data?.type === "pubkey") {
+        const pubkey = node.data?.pubkey || "";
+        const profile = node.data?.profile;
+        const name = profile?.name || profile?.display_name || "";
+
+        if (pubkey.toLowerCase().includes(query) || name.toLowerCase().includes(query)) {
+          matchingNodeIds.add(node.id);
         }
-      } else if (node.data?.type === 'tag') {
-        const tag = node.data?.tag || ''
+      } else if (node.data?.type === "tag") {
+        const tag = node.data?.tag || "";
         if (tag.toLowerCase().includes(query)) {
-          matchingNodeIds.add(node.id)
+          matchingNodeIds.add(node.id);
         }
       }
-      return
+      return;
     }
-    
-    let matches = false
-    
+
+    let matches = false;
+
     // Search event content
     if (event.content?.toLowerCase().includes(query)) {
-      matches = true
+      matches = true;
     }
-    
+
     // Search tags
     if (!matches && event.tags) {
       const hasMatchingTag = event.tags.some((t: string[]) => {
-        if (t[0] === 't' && t[1]?.toLowerCase().includes(query)) {
-          return true // Hashtag match
+        if (t[0] === "t" && t[1]?.toLowerCase().includes(query)) {
+          return true; // Hashtag match
         }
-        return t.some((val: string) => val?.toLowerCase().includes(query))
-      })
-      if (hasMatchingTag) matches = true
+        return t.some((val: string) => val?.toLowerCase().includes(query));
+      });
+      if (hasMatchingTag) matches = true;
     }
-    
+
     // Search author pubkey
     if (!matches && event.pubkey?.toLowerCase().includes(query)) {
-      matches = true
+      matches = true;
     }
-    
+
     // Search event ID
     if (!matches && event.id?.toLowerCase().includes(query)) {
-      matches = true
+      matches = true;
     }
-    
+
     // Search mentions (p-tags)
     if (!matches && event.tags) {
-      const hasMatchingMention = event.tags.some((t: string[]) => 
-        t[0] === 'p' && t[1]?.toLowerCase().includes(query)
-      )
-      if (hasMatchingMention) matches = true
+      const hasMatchingMention = event.tags.some(
+        (t: string[]) => t[0] === "p" && t[1]?.toLowerCase().includes(query)
+      );
+      if (hasMatchingMention) matches = true;
     }
-    
+
     if (matches) {
-      matchingNodeIds.add(node.id)
+      matchingNodeIds.add(node.id);
     }
-  })
-  
-  searchResults.value = matchingNodeIds
-  searchActive.value = true
-  applySearchResults()
-  
-  showMessage(`Found ${matchingNodeIds.size} matching ${matchingNodeIds.size === 1 ? 'node' : 'nodes'}`, 'success')
+  });
+
+  searchResults.value = matchingNodeIds;
+  searchActive.value = true;
+  applySearchResults();
+
+  showMessage(
+    `Found ${matchingNodeIds.size} matching ${
+      matchingNodeIds.size === 1 ? "node" : "nodes"
+    }`,
+    "success"
+  );
 }
 
 // Apply search results - hide non-matching nodes and edges
 function applySearchResults() {
-  if (!graph || !searchActive.value) return
-  
-  const nodeUpdates: any[] = []
-  const edgeUpdates: any[] = []
-  
+  if (!graph || !searchActive.value) return;
+
+  const nodeUpdates: any[] = [];
+  const edgeUpdates: any[] = [];
+
   // Hide/show nodes based on search results
   graphStore.nodes.forEach((node: any) => {
-    const isMatch = searchResults.value.has(node.id)
-    
+    const isMatch = searchResults.value.has(node.id);
+
     nodeUpdates.push({
       id: node.id,
       style: {
         ...node.style,
-        visibility: isMatch ? 'visible' : 'hidden',
-        stroke: isMatch ? '#3b82f6' : undefined,
+        visibility: isMatch ? "visible" : "hidden",
+        stroke: isMatch ? "#3b82f6" : undefined,
         lineWidth: isMatch ? 3 : undefined,
-      }
-    })
-  })
-  
+      },
+    });
+  });
+
   // Hide edges where either source or target is hidden
   graphStore.edges.forEach((edge: any) => {
-    const sourceVisible = searchResults.value.has(edge.source)
-    const targetVisible = searchResults.value.has(edge.target)
-    const isVisible = sourceVisible && targetVisible
-    
+    const sourceVisible = searchResults.value.has(edge.source);
+    const targetVisible = searchResults.value.has(edge.target);
+    const isVisible = sourceVisible && targetVisible;
+
     edgeUpdates.push({
       id: edge.id || `${edge.source}-${edge.target}`,
       style: {
         ...edge.style,
-        visibility: isVisible ? 'visible' : 'hidden',
-      }
-    })
-  })
-  
+        visibility: isVisible ? "visible" : "hidden",
+      },
+    });
+  });
+
   if (nodeUpdates.length > 0) {
-    graph.updateNodeData(nodeUpdates)
+    graph.updateNodeData(nodeUpdates);
   }
-  
+
   if (edgeUpdates.length > 0) {
-    graph.updateEdgeData(edgeUpdates)
+    graph.updateEdgeData(edgeUpdates);
   }
-  
-  graph.render()
+
+  graph.render();
 }
 
 // Clear search
 function clearSearch() {
-  searchQuery.value = ''
-  searchResults.value.clear()
-  searchActive.value = false
-  
-  if (!graph) return
-  
+  searchQuery.value = "";
+  searchResults.value.clear();
+  searchActive.value = false;
+
+  if (!graph) return;
+
   // Show all nodes and edges, remove search highlighting
-  const nodeUpdates: any[] = []
-  const edgeUpdates: any[] = []
-  
+  const nodeUpdates: any[] = [];
+  const edgeUpdates: any[] = [];
+
   graphStore.nodes.forEach((node: any) => {
     nodeUpdates.push({
       id: node.id,
       style: {
         ...node.style,
-        visibility: 'visible',
+        visibility: "visible",
         stroke: undefined,
         lineWidth: undefined,
-      }
-    })
-  })
-  
+      },
+    });
+  });
+
   graphStore.edges.forEach((edge: any) => {
     edgeUpdates.push({
       id: edge.id || `${edge.source}-${edge.target}`,
       style: {
         ...edge.style,
-        visibility: 'visible',
-      }
-    })
-  })
-  
+        visibility: "visible",
+      },
+    });
+  });
+
   if (nodeUpdates.length > 0) {
-    graph.updateNodeData(nodeUpdates)
+    graph.updateNodeData(nodeUpdates);
   }
-  
+
   if (edgeUpdates.length > 0) {
-    graph.updateEdgeData(edgeUpdates)
+    graph.updateEdgeData(edgeUpdates);
   }
-  
-  graph.render()
+
+  graph.render();
 }
 
 // Toggle search mode between AND/OR
 function toggleSearchMode() {
-  searchMode.value = searchMode.value === 'AND' ? 'OR' : 'AND'
-  showMessage(`Search mode: ${searchMode.value}`, 'info')
+  searchMode.value = searchMode.value === "AND" ? "OR" : "AND";
+  showMessage(`Search mode: ${searchMode.value}`, "info");
   // Re-apply search if active
   if (searchActive.value) {
-    performSearch()
+    performSearch();
   }
 }
 
 // Search Nostr relays for matching events
 async function searchNostrRelays() {
   if (!searchQuery.value.trim()) {
-    showMessage('Please enter a search query', 'warning')
-    return
+    showMessage("Please enter a search query", "warning");
+    return;
   }
-  
-  isSearching.value = true
-  contextMenu.value.show = false
-  
+
+  isSearching.value = true;
+  contextMenu.value.show = false;
+
   try {
-    const query = searchQuery.value.trim()
-    
+    const query = searchQuery.value.trim();
+
     // Fetch events that might contain the search query
     // We'll search by content using kind 1 (notes) and kind 30023 (articles)
-    const events = await fetchInitialEvents([
-      { kinds: [1, 30023], limit: 100 }
-    ])
-    
+    const events = await fetchInitialEvents([{ kinds: [1, 30023], limit: 100 }]);
+
     // Filter events locally by search query
-    const matchingEvents = events.filter(event => {
-      const searchLower = query.toLowerCase()
-      
+    const matchingEvents = events.filter((event) => {
+      const searchLower = query.toLowerCase();
+
       // Search content
-      if (event.content?.toLowerCase().includes(searchLower)) return true
-      
+      if (event.content?.toLowerCase().includes(searchLower)) return true;
+
       // Search tags
-      if (event.tags?.some((t: string[]) => 
-        t.some((val: string) => val?.toLowerCase().includes(searchLower))
-      )) return true
-      
-      return false
-    })
-    
+      if (
+        event.tags?.some((t: string[]) =>
+          t.some((val: string) => val?.toLowerCase().includes(searchLower))
+        )
+      )
+        return true;
+
+      return false;
+    });
+
     if (matchingEvents.length > 0) {
-      graphStore.updateWithEvents(matchingEvents)
-      showMessage(`Added ${matchingEvents.length} events from Nostr relays`, 'success')
-      
+      graphStore.updateWithEvents(matchingEvents);
+      showMessage(`Added ${matchingEvents.length} events from Nostr relays`, "success");
+
       // Automatically perform local search to highlight new results
-      setTimeout(() => performSearch(), 500)
+      setTimeout(() => performSearch(), 500);
     } else {
-      showMessage('No matching events found on Nostr relays', 'info')
+      showMessage("No matching events found on Nostr relays", "info");
     }
   } catch (error) {
-    console.error('Failed to search Nostr relays:', error)
-    showMessage('Failed to search Nostr relays', 'error')
+    console.error("Failed to search Nostr relays:", error);
+    showMessage("Failed to search Nostr relays", "error");
   } finally {
-    isSearching.value = false
+    isSearching.value = false;
   }
 }
 
 // Start investigation - focus on single event
 function startInvestigation(eventId: string) {
-  contextMenu.value.show = false
-  
-  if (!graph) return
-  
+  contextMenu.value.show = false;
+
+  if (!graph) return;
+
   // Find the selected node
-  const selectedNode = graphStore.nodes.find((node: any) => node.id === eventId)
-  
+  const selectedNode = graphStore.nodes.find((node: any) => node.id === eventId);
+
   if (!selectedNode) {
-    showMessage('Event not found in graph', 'error')
-    return
+    showMessage("Event not found in graph", "error");
+    return;
   }
-  
+
   // Clear the graph and keep only the selected event node (no author node)
   graphStore.setGraphData({
     nodes: [selectedNode],
-    edges: []
-  })
-  
-  showMessage('Investigation started from this event. Use expansion options to build the graph.', 'success', 5000)
+    edges: [],
+  });
+
+  showMessage(
+    "Investigation started from this event. Use expansion options to build the graph.",
+    "success",
+    5000
+  );
 }
 
 // Remove node from graph
 function removeNode(nodeId: string) {
-  contextMenu.value.show = false
-  
+  contextMenu.value.show = false;
+
   // Check how many nodes would remain
-  const remainingCount = graphStore.nodes.length - 1
-  
+  const remainingCount = graphStore.nodes.length - 1;
+
   if (remainingCount === 0) {
-    showMessage('Cannot remove the last node from graph', 'warning')
-    return
+    showMessage("Cannot remove the last node from graph", "warning");
+    return;
   }
-  
+
   // Remove from graph store (also removes connected edges)
-  graphStore.removeNode(nodeId)
-  
-  showMessage('Node removed from graph', 'success')
+  graphStore.removeNode(nodeId);
+
+  showMessage("Node removed from graph", "success");
 }
 
-// Watch for settings changes and auto-apply
-watch(layoutSettings, () => {
-  applyLayoutSettings()
-}, { deep: true })
+// Watch for settings changes and auto-apply with debounce
+watch(
+  layoutSettings,
+  () => {
+    // Clear existing timer to debounce rapid changes (e.g., dragging sliders)
+    if (layoutSettingsDebounceTimer) {
+      clearTimeout(layoutSettingsDebounceTimer);
+    }
+
+    // Apply settings after 150ms of no changes
+    layoutSettingsDebounceTimer = setTimeout(() => {
+      applyLayoutSettings();
+      layoutSettingsDebounceTimer = null;
+    }, 150);
+  },
+  { deep: true }
+);
 
 onMounted(() => {
-  if (!graphRef.value) return
-  
+  if (!graphRef.value) return;
+
   // Initialize G6 graph with HTML nodes
   graph = new Graph({
     container: graphRef.value,
     width: graphRef.value.offsetWidth,
     height: graphRef.value.offsetHeight,
-    
+
     layout: getLayoutConfig(layoutMode.value),
-    
+
     // Speed up animations globally
     animation: {
-      duration: 300,  // Faster transitions (default is 500ms)
+      duration: 300, // Faster transitions (default is 500ms)
     },
-    
-    behaviors: [
-      'drag-canvas',
-      'zoom-canvas',
-      'drag-element',
-    ],
-    
+
+    behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
+
     node: {
-      type: 'html',
+      type: "html",
       style: {
         size: (d: any) => {
-          const expanded = d.data?.expanded
-          return expanded ? [400, 300] : [60, 60]
+          const expanded = d.data?.expanded;
+          return expanded ? [400, 300] : [60, 60];
         },
         dx: (d: any) => {
-          const expanded = d.data?.expanded
-          const width = expanded ? 400 : 60
-          return -width / 2
+          const expanded = d.data?.expanded;
+          const width = expanded ? 400 : 60;
+          return -width / 2;
         },
         dy: (d: any) => {
-          const expanded = d.data?.expanded
-          const height = expanded ? 300 : 60
-          return -height / 2
+          const expanded = d.data?.expanded;
+          const height = expanded ? 300 : 60;
+          return -height / 2;
         },
         innerHTML: (d: any) => renderEventNode(d),
       },
     },
-    
+
     edge: {
       style: {
-        stroke: '#999',
-        lineWidth: 1.5,
+        stroke: (d: any) => getEdgeStyle(d).stroke,
+        lineWidth: (d: any) => getEdgeStyle(d).lineWidth,
+        lineDash: (d: any) => getEdgeStyle(d).lineDash,
+        opacity: (d: any) => getEdgeStyle(d).opacity,
         endArrow: true,
+        labelText: () => "", // Empty by default, shown on hover
+        labelFill: "#666",
+        labelFontSize: 10,
+        labelBackground: true,
+        labelBackgroundFill: "#fff",
+        labelBackgroundOpacity: 0.9,
+        labelBackgroundRadius: 3,
+        labelBackgroundPadding: [2, 4],
+      },
+      state: {
+        hover: {
+          stroke: (d: any) => getEdgeStyle(d).stroke,
+          lineWidth: (d: any) => getEdgeStyle(d).lineWidth + 1,
+          opacity: 1,
+          labelText: (d: any) => getEdgeStyle(d).label,
+        },
       },
     },
-  })
-  
+  });
+
   // Load initial data
-  graph.setData(graphData.value)
-  graph.render()
-  
+  graph.setData(graphData.value);
+  graph.render();
+
   // Animation starts automatically and runs until it stabilizes naturally
-  isAnimating.value = true
-  
+  isAnimating.value = true;
+
+  // Single click to mark node as active (for tree root selection)
+  graph.on("node:click", (evt: any) => {
+    const nodeId = evt.target?.id || evt.item?.id;
+    if (!nodeId || nodeId === "__super_root__") return; // Ignore virtual root
+
+    console.log("[Node] Active node set to:", nodeId);
+    activeNodeId.value = nodeId;
+    graphStore.selectNode(nodeId);
+  });
+
   // Double-click to expand/collapse node
-  graph.on('node:dblclick', (evt: any) => {
-    const nodeId = evt.target?.id || evt.item?.id
-    if (!nodeId) return
-    
-    const nodeData = graph.getNodeData(nodeId)
-    if (!nodeData) return
-    
+  graph.on("node:dblclick", (evt: any) => {
+    const nodeId = evt.target?.id || evt.item?.id;
+    if (!nodeId) return;
+
+    const nodeData = graph.getNodeData(nodeId);
+    if (!nodeData) return;
+
     // For pubkey nodes, only expand if they have profile data
-    if (nodeData.data?.type === 'pubkey') {
-      if (!nodeData.data?.profile) return
+    if (nodeData.data?.type === "pubkey") {
+      if (!nodeData.data?.profile) return;
     }
-    
+
     // For event nodes, only expand if there's event data
-    if (nodeData.data?.type !== 'pubkey' && !nodeData.data?.event) return
-    
-    const expanded = !nodeData.data?.expanded
+    if (nodeData.data?.type !== "pubkey" && !nodeData.data?.event) return;
+
+    const expanded = !nodeData.data?.expanded;
     const updated = {
       ...nodeData,
       data: {
@@ -2652,367 +4129,759 @@ onMounted(() => {
         dx: expanded ? -200 : -30,
         dy: expanded ? -150 : -30,
       },
-    }
-    
-    graph.updateNodeData([updated])
-    graph.render()
-    
+    };
+
+    graph.updateNodeData([updated]);
+    graph.render();
+
     // No need to rerun layout - space is always reserved for card size
-  })
-  
+  });
+
   // Handle canvas click (deselect)
-  graph.on('canvas:click', () => {
-    graphStore.selectNode(null)
-  })
-  
+  graph.on("canvas:click", () => {
+    graphStore.selectNode(null);
+    selectedCardId.value = null; // Deselect card when clicking on canvas
+  });
+
   // Close button click (DOM event delegation)
-  graphRef.value.addEventListener('click', (e: Event) => {
-    const target = e.target as HTMLElement
-    
-    // Check for stat clicks (left-click = refresh count)
-    const stat = target.closest('[data-role^="stat-"]')
+  graphRef.value.addEventListener("click", (e: Event) => {
+    const target = e.target as HTMLElement;
+
+    // Check for stat clicks FIRST (left-click = refresh count)
+    const stat = target.closest('[data-role^="stat-"]');
     if (stat) {
-      const role = stat.getAttribute('data-role')
-      const eventId = stat.getAttribute('data-event-id')
-      
+      e.stopPropagation(); // Prevent card selection
+      const role = stat.getAttribute("data-role");
+      const eventId = stat.getAttribute("data-event-id");
+
       if (eventId) {
         // Map stat role to refresh handler
-        if (role === 'stat-reactions') {
-          handleRefreshReactions(eventId)
-        } else if (role === 'stat-replies') {
-          handleRefreshReplies(eventId)
-        } else if (role === 'stat-reposts') {
-          handleRefreshReposts(eventId)
-        } else if (role === 'stat-mentions') {
-          handleRefreshMentions(eventId)
-        } else if (role === 'stat-thread') {
-          handleRefreshThread(eventId)
+        if (role === "stat-reactions") {
+          handleRefreshReactions(eventId);
+        } else if (role === "stat-replies") {
+          handleRefreshReplies(eventId);
+        } else if (role === "stat-reposts") {
+          handleRefreshReposts(eventId);
+        } else if (role === "stat-mentions") {
+          handleRefreshMentions(eventId);
+        } else if (role === "stat-thread") {
+          handleRefreshThread(eventId);
         }
       }
-      return
+      return;
     }
-    
+
     // Check for close button
-    const closeBtn = target.closest('[data-role="close"]')
-    if (!closeBtn) return
-    
-    const itemEl = closeBtn.closest('[data-item-id]')
-    const nodeId = itemEl?.getAttribute('data-item-id')
-    if (!nodeId) return
-    
-    const nodeData = graph.getNodeData(nodeId)
-    if (!nodeData) return
-    
-    const updated = {
-      ...nodeData,
-      data: {
-        ...nodeData.data,
-        expanded: false,
-      },
-      style: {
-        ...nodeData.style,
-        size: [60, 60],
-        dx: -30,
-        dy: -30,
-      },
+    const closeBtn = target.closest('[data-role="close"]');
+    if (closeBtn) {
+      e.stopPropagation(); // Prevent card selection
+
+      const itemEl = closeBtn.closest("[data-item-id]");
+      const nodeId = itemEl?.getAttribute("data-item-id");
+      if (!nodeId) return;
+
+      const nodeData = graph.getNodeData(nodeId);
+      if (!nodeData) return;
+
+      const updated = {
+        ...nodeData,
+        data: {
+          ...nodeData.data,
+          expanded: false,
+        },
+        style: {
+          ...nodeData.style,
+          size: [60, 60],
+          dx: -30,
+          dy: -30,
+        },
+      };
+
+      graph.updateNodeData([updated]);
+      graph.render();
+      return;
     }
-    
-    graph.updateNodeData([updated])
-    graph.render()
-    
-    // No need to rerun layout - space is always reserved for card size
-  })
-  
-  // Right-click context menu (DOM event delegation)
-  graphRef.value.addEventListener('contextmenu', (e: MouseEvent) => {
-    e.preventDefault()
-    
-    const target = e.target as HTMLElement
-    
-    // Check if right-clicking on a stat (reactions, replies, etc.)
-    const stat = target.closest('[data-role^="stat-"]')
-    if (stat) {
-      const role = stat.getAttribute('data-role')
-      const eventId = stat.getAttribute('data-event-id')
-      
-      if (eventId && role) {
-        const statType = role.replace('stat-', '') as StatType
-        showStatContextMenu(e.clientX, e.clientY, eventId, statType)
-        return
-      }
-    }
-    
-    // Check if clicking on a pubkey node (author circle)
-    const pubkeyNodeEl = target.closest('.pubkey-node[data-item-id][data-pubkey]')
-    if (pubkeyNodeEl) {
-      const nodeId = pubkeyNodeEl.getAttribute('data-item-id')
-      const pubkey = pubkeyNodeEl.getAttribute('data-pubkey')
-      
-      if (nodeId && pubkey) {
-        showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, [
-          { label: 'Expand all posts by author', icon: 'mdi-post-outline', handler: () => expandAuthorPosts(pubkey) },
-          { label: 'Expand blog articles (kind 30023)', icon: 'mdi-book-open', handler: () => expandAuthorArticles(pubkey) },
-          { label: 'Expand author profile', icon: 'mdi-account-details', handler: () => expandAuthorProfile(pubkey) },
-          { label: 'Show followers/following', icon: 'mdi-account-group', handler: () => expandAuthorNetwork(pubkey) },
-          { label: 'Filter to show only this author', icon: 'mdi-filter', handler: () => filterByAuthor(pubkey) },
-          { label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) },
-        ])
-        return
-      }
-    }
-    
-    // Check if clicking on a tag node (tag circle)
-    const tagNodeEl = target.closest('.tag-node[data-item-id][data-tag]')
-    if (tagNodeEl) {
-      const nodeId = tagNodeEl.getAttribute('data-item-id')
-      const tag = tagNodeEl.getAttribute('data-tag')
-      
-      if (nodeId && tag) {
-        showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, [
-          { label: 'Expand more posts with this tag', icon: 'mdi-tag-plus', handler: () => expandByTag(tag) },
-          { label: 'Filter to show only this tag', icon: 'mdi-filter', handler: () => filterByTag(tag) },
-          { label: 'Highlight posts with this tag', icon: 'mdi-marker', handler: () => highlightByTag(tag) },
-          { label: 'Remove this tag node', icon: 'mdi-delete', handler: () => removeNode(nodeId) },
-        ])
-        return
-      }
-    }
-    
-    // Check if clicking on a tag
-    const tagEl = target.closest('[data-tag]')
+
+    // Check for tags
+    const tagEl = target.closest("[data-tag]");
     if (tagEl) {
-      const tag = tagEl.getAttribute('data-tag')
+      e.stopPropagation(); // Prevent card selection
+      return;
+    }
+
+    // Check for mentions
+    const mentionEl = target.closest("[data-mention]");
+    if (mentionEl) {
+      e.stopPropagation(); // Prevent card selection
+      return;
+    }
+
+    // Check for author section
+    const authorEl = target.closest("[data-author-pubkey]");
+    if (authorEl) {
+      e.stopPropagation(); // Prevent card selection
+      return;
+    }
+
+    // Finally, check for card click to select it (only if no interactive elements were clicked)
+    const card = target.closest(".event-node.expanded");
+    if (card) {
+      const cardId = card.getAttribute("data-item-id");
+      if (cardId) {
+        selectedCardId.value = cardId;
+        console.log("[Card] Selected card:", cardId);
+        return;
+      }
+    }
+  });
+
+  // Right-click context menu (DOM event delegation)
+  graphRef.value.addEventListener("contextmenu", (e: MouseEvent) => {
+    e.preventDefault();
+
+    const target = e.target as HTMLElement;
+
+    // Check if right-clicking on a stat (reactions, replies, etc.)
+    const stat = target.closest('[data-role^="stat-"]');
+    if (stat) {
+      const role = stat.getAttribute("data-role");
+      const eventId = stat.getAttribute("data-event-id");
+
+      if (eventId && role) {
+        const statType = role.replace("stat-", "") as StatType;
+        showStatContextMenu(e.clientX, e.clientY, eventId, statType);
+        return;
+      }
+    }
+
+    // Check if clicking on a pubkey node (author circle)
+    const pubkeyNodeEl = target.closest(".pubkey-node[data-item-id][data-pubkey]");
+    if (pubkeyNodeEl) {
+      const nodeId = pubkeyNodeEl.getAttribute("data-item-id");
+      const pubkey = pubkeyNodeEl.getAttribute("data-pubkey");
+
+      if (nodeId && pubkey) {
+        const actions = [
+          {
+            label: "Expand all posts by author",
+            icon: "mdi-post-outline",
+            handler: () => expandAuthorPosts(pubkey),
+          },
+          {
+            label: "Expand blog articles (kind 30023)",
+            icon: "mdi-book-open",
+            handler: () => expandAuthorArticles(pubkey),
+          },
+          {
+            label: "Expand author profile",
+            icon: "mdi-account-details",
+            handler: () => expandAuthorProfile(pubkey),
+          },
+          {
+            label: "Show followers/following",
+            icon: "mdi-account-group",
+            handler: () => expandAuthorNetwork(pubkey),
+          },
+          {
+            label: "Filter to show only this author",
+            icon: "mdi-filter",
+            handler: () => filterByAuthor(pubkey),
+          },
+          {
+            label: "Make tree root",
+            icon: "mdi-tree",
+            handler: () => makeTreeRoot(nodeId),
+          },
+          {
+            label: "Remove this node",
+            icon: "mdi-delete",
+            handler: () => removeNode(nodeId),
+          },
+        ];
+        showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, actions);
+        return;
+      }
+    }
+
+    // Check if clicking on a tag node (tag circle)
+    const tagNodeEl = target.closest(".tag-node[data-item-id][data-tag]");
+    if (tagNodeEl) {
+      const nodeId = tagNodeEl.getAttribute("data-item-id");
+      const tag = tagNodeEl.getAttribute("data-tag");
+
+      if (nodeId && tag) {
+        const actions = [
+          {
+            label: "Expand more posts with this tag",
+            icon: "mdi-tag-plus",
+            handler: () => expandByTag(tag),
+          },
+          {
+            label: "Filter to show only this tag",
+            icon: "mdi-filter",
+            handler: () => filterByTag(tag),
+          },
+          {
+            label: "Highlight posts with this tag",
+            icon: "mdi-marker",
+            handler: () => highlightByTag(tag),
+          },
+          {
+            label: "Make tree root",
+            icon: "mdi-tree",
+            handler: () => makeTreeRoot(nodeId),
+          },
+          {
+            label: "Remove this tag node",
+            icon: "mdi-delete",
+            handler: () => removeNode(nodeId),
+          },
+        ];
+        showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, actions);
+        return;
+      }
+    }
+
+    // Check if clicking on a tag
+    const tagEl = target.closest("[data-tag]");
+    if (tagEl) {
+      const tag = tagEl.getAttribute("data-tag");
       if (tag) {
         // Get the node ID from the card
-        const cardEl = tagEl.closest('[data-item-id]')
-        const nodeId = cardEl?.getAttribute('data-item-id')
-        
+        const cardEl = tagEl.closest("[data-item-id]");
+        const nodeId = cardEl?.getAttribute("data-item-id");
+
         const actions = [
-          { label: 'Expand posts with this tag', icon: 'mdi-tag-plus', handler: () => expandByTag(tag) },
-          { label: 'Filter to show only this tag', icon: 'mdi-filter', handler: () => filterByTag(tag) },
-          { label: 'Highlight posts with this tag', icon: 'mdi-marker', handler: () => highlightByTag(tag) },
-        ]
-        
+          {
+            label: "Expand posts with this tag",
+            icon: "mdi-tag-plus",
+            handler: () => expandByTag(tag),
+          },
+          {
+            label: "Filter to show only this tag",
+            icon: "mdi-filter",
+            handler: () => filterByTag(tag),
+          },
+          {
+            label: "Highlight posts with this tag",
+            icon: "mdi-marker",
+            handler: () => highlightByTag(tag),
+          },
+        ];
+
         if (nodeId) {
-          actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) })
+          actions.push({
+            label: "Remove this node",
+            icon: "mdi-delete",
+            handler: () => removeNode(nodeId),
+          });
         }
-        
-        showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, actions)
-        return
+
+        showContextMenu(e.clientX, e.clientY, `Tag: #${tag}`, actions);
+        return;
       }
     }
-    
+
     // Check if clicking on a mention
-    const mentionEl = target.closest('[data-mention]')
+    const mentionEl = target.closest("[data-mention]");
     if (mentionEl) {
-      const pubkey = mentionEl.getAttribute('data-mention')
+      const pubkey = mentionEl.getAttribute("data-mention");
       if (pubkey) {
         // Get the node ID from the card
-        const cardEl = mentionEl.closest('[data-item-id]')
-        const nodeId = cardEl?.getAttribute('data-item-id')
-        
+        const cardEl = mentionEl.closest("[data-item-id]");
+        const nodeId = cardEl?.getAttribute("data-item-id");
+
         const actions = [
-          { label: 'Expand user posts', icon: 'mdi-post', handler: () => expandAuthorPosts(pubkey) },
-          { label: 'Expand user profile', icon: 'mdi-account', handler: () => expandAuthorProfile(pubkey) },
-          { label: 'Filter to show only this user', icon: 'mdi-filter', handler: () => filterByAuthor(pubkey) },
-          { label: 'Highlight user content', icon: 'mdi-marker', handler: () => highlightByAuthor(pubkey) },
-        ]
-        
+          {
+            label: "Expand user posts",
+            icon: "mdi-post",
+            handler: () => expandAuthorPosts(pubkey),
+          },
+          {
+            label: "Expand user profile",
+            icon: "mdi-account",
+            handler: () => expandAuthorProfile(pubkey),
+          },
+          {
+            label: "Filter to show only this user",
+            icon: "mdi-filter",
+            handler: () => filterByAuthor(pubkey),
+          },
+          {
+            label: "Highlight user content",
+            icon: "mdi-marker",
+            handler: () => highlightByAuthor(pubkey),
+          },
+        ];
+
         if (nodeId) {
-          actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) })
+          actions.push({
+            label: "Remove this node",
+            icon: "mdi-delete",
+            handler: () => removeNode(nodeId),
+          });
         }
-        
-        showContextMenu(e.clientX, e.clientY, `User ${pubkey.slice(0, 8)}...`, actions)
-        return
+
+        showContextMenu(e.clientX, e.clientY, `User ${pubkey.slice(0, 8)}...`, actions);
+        return;
       }
     }
-    
+
     // Check if clicking on author section
-    const authorEl = target.closest('[data-author-pubkey]')
+    const authorEl = target.closest("[data-author-pubkey]");
     if (authorEl) {
-      const pubkey = authorEl.getAttribute('data-author-pubkey')
+      const pubkey = authorEl.getAttribute("data-author-pubkey");
       if (pubkey) {
         // Get the node ID from the card
-        const cardEl = authorEl.closest('[data-item-id]')
-        const nodeId = cardEl?.getAttribute('data-item-id')
-        
+        const cardEl = authorEl.closest("[data-item-id]");
+        const nodeId = cardEl?.getAttribute("data-item-id");
+
         const actions = [
-          { label: 'Expand all posts by author', icon: 'mdi-post-outline', handler: () => expandAuthorPosts(pubkey) },
-          { label: 'Expand blog articles (kind 30023)', icon: 'mdi-book-open', handler: () => expandAuthorArticles(pubkey) },
-          { label: 'Expand author profile', icon: 'mdi-account-details', handler: () => expandAuthorProfile(pubkey) },
-          { label: 'Show followers/following', icon: 'mdi-account-group', handler: () => expandAuthorNetwork(pubkey) },
-          { label: 'Filter to show only this author', icon: 'mdi-filter', handler: () => filterByAuthor(pubkey) },
-        ]
-        
+          {
+            label: "Expand all posts by author",
+            icon: "mdi-post-outline",
+            handler: () => expandAuthorPosts(pubkey),
+          },
+          {
+            label: "Expand blog articles (kind 30023)",
+            icon: "mdi-book-open",
+            handler: () => expandAuthorArticles(pubkey),
+          },
+          {
+            label: "Expand author profile",
+            icon: "mdi-account-details",
+            handler: () => expandAuthorProfile(pubkey),
+          },
+          {
+            label: "Show followers/following",
+            icon: "mdi-account-group",
+            handler: () => expandAuthorNetwork(pubkey),
+          },
+          {
+            label: "Filter to show only this author",
+            icon: "mdi-filter",
+            handler: () => filterByAuthor(pubkey),
+          },
+        ];
+
         if (nodeId) {
-          actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(nodeId) })
+          actions.push({
+            label: "Remove this node",
+            icon: "mdi-delete",
+            handler: () => removeNode(nodeId),
+          });
         }
-        
-        showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, actions)
-        return
+
+        showContextMenu(e.clientX, e.clientY, `Author ${pubkey.slice(0, 8)}...`, actions);
+        return;
       }
     }
-    
+
     // Check if clicking on a card (general note context menu)
-    const cardEl = target.closest('[data-item-id][data-kind][data-author]')
+    const cardEl = target.closest("[data-item-id][data-kind][data-author]");
     if (cardEl) {
-      const kind = cardEl.getAttribute('data-kind')
-      const author = cardEl.getAttribute('data-author')
-      const itemId = cardEl.getAttribute('data-item-id')
-      
+      const kind = cardEl.getAttribute("data-kind");
+      const author = cardEl.getAttribute("data-author");
+      const itemId = cardEl.getAttribute("data-item-id");
+
       if (kind && author && itemId) {
-        const kindNum = parseInt(kind)
-        let title = 'Note Options'
-        const actions: Array<{ label: string, icon: string, handler: () => void }> = []
-        
+        const kindNum = parseInt(kind);
+        let title = "Note Options";
+        const actions: Array<{ label: string; icon: string; handler: () => void }> = [];
+
         // Add kind-specific options
-        if (kindNum === 6) { // Repost
-          actions.push({ label: 'Show original post', icon: 'mdi-bookmark', handler: () => expandOriginalPost(itemId) })
+        if (kindNum === 6) {
+          // Repost
+          actions.push({
+            label: "Show original post",
+            icon: "mdi-bookmark",
+            handler: () => expandOriginalPost(itemId),
+          });
         }
-        
-        if (kindNum === 1 || kindNum === 30023) { // Note or Article
-          actions.push({ label: 'Show thread/replies', icon: 'mdi-comment-multiple', handler: () => expandThread(itemId) })
-          actions.push({ label: 'Show reactions', icon: 'mdi-heart', handler: () => expandReactions(itemId) })
-          actions.push({ label: 'Show reposts', icon: 'mdi-repeat', handler: () => expandReposts(itemId) })
+
+        if (kindNum === 1 || kindNum === 30023) {
+          // Note or Article
+          actions.push({
+            label: "Show thread/replies",
+            icon: "mdi-comment-multiple",
+            handler: () => expandThread(itemId),
+          });
+          actions.push({
+            label: "Show reactions",
+            icon: "mdi-heart",
+            handler: () => expandReactions(itemId),
+          });
+          actions.push({
+            label: "Show reposts",
+            icon: "mdi-repeat",
+            handler: () => expandReposts(itemId),
+          });
         }
-        
+
         // Always add author expand option
-        actions.push({ label: 'Start investigation from here', icon: 'mdi-target', handler: () => startInvestigation(itemId) })
-        actions.push({ label: 'Expand author profile', icon: 'mdi-account', handler: () => expandAuthorProfile(author) })
-        actions.push({ label: 'Filter to show related', icon: 'mdi-filter', handler: () => filterRelated(itemId) })
-        actions.push({ label: 'Remove this node', icon: 'mdi-delete', handler: () => removeNode(itemId) })
-        
-        showContextMenu(e.clientX, e.clientY, title, actions)
-        return
+        actions.push({
+          label: "Start investigation from here",
+          icon: "mdi-target",
+          handler: () => startInvestigation(itemId),
+        });
+        actions.push({
+          label: "Expand author profile",
+          icon: "mdi-account",
+          handler: () => expandAuthorProfile(author),
+        });
+        actions.push({
+          label: "Filter to show related",
+          icon: "mdi-filter",
+          handler: () => filterRelated(itemId),
+        });
+        actions.push({
+          label: "Make tree root",
+          icon: "mdi-tree",
+          handler: () => makeTreeRoot(itemId),
+        });
+        actions.push({
+          label: "Remove this node",
+          icon: "mdi-delete",
+          handler: () => removeNode(itemId),
+        });
+
+        showContextMenu(e.clientX, e.clientY, title, actions);
+        return;
       }
     }
-  })
-  
+  });
+
+  // Handle mouse wheel for scrolling selected card
+  graphRef.value.addEventListener(
+    "wheel",
+    (e: WheelEvent) => {
+      if (!selectedCardId.value) return;
+
+      // Find the selected card's body element
+      const selectedCard = graphRef.value?.querySelector(
+        `[data-item-id="${selectedCardId.value}"]`
+      );
+      if (!selectedCard) return;
+
+      const cardBody = selectedCard.querySelector(".event-body");
+      if (!cardBody) return;
+
+      // Check if the mouse is over the selected card
+      const rect = selectedCard.getBoundingClientRect();
+      const isOverCard =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+
+      if (isOverCard) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Scroll the card body
+        cardBody.scrollTop += e.deltaY;
+      }
+    },
+    { passive: false }
+  );
+
+  // Deselect card when clicking outside
+  graphRef.value.addEventListener("click", (e: Event) => {
+    const target = e.target as HTMLElement;
+    const card = target.closest(".event-node.expanded");
+
+    if (!card) {
+      selectedCardId.value = null;
+    }
+  });
+
   // Handle window resize
-  window.addEventListener('resize', handleResize)
-  
-  // Try loading from database first
-  loadFromDb()
-})
+  window.addEventListener("resize", handleResize);
+
+  // Restore last active investigation if available
+  (async () => {
+    const lastStateId = getLastActiveState();
+    if (lastStateId) {
+      try {
+        const state = await loadGraphState(lastStateId);
+        if (state) {
+          console.log("[Investigation] Restoring last active state:", state.name);
+          await restoreInvestigation(lastStateId);
+          return; // Don't load from DB, we're restoring saved state
+        }
+      } catch (error) {
+        console.warn("[Investigation] Failed to restore last state:", error);
+      }
+    }
+
+    // If no saved state or restoring failed, try loading from database
+    loadFromDb();
+  })();
+});
 
 onUnmounted(() => {
   if (graph) {
-    graph.destroy()
+    graph.destroy();
   }
-  window.removeEventListener('resize', handleResize)
-})
+  window.removeEventListener("resize", handleResize);
+});
 
 // Watch for layout changes
-watch(layoutMode, (newLayout) => {
-  if (graph) {
-    graph.setLayout(getLayoutConfig(newLayout))
-    graph.layout()
-    
-    // Start animation on layout change
-    isAnimating.value = true
+watch(layoutMode, (newLayout, oldLayout) => {
+  if (!graph || !graphData.value) return;
+
+  const newIsTree = isTreeLayout(newLayout);
+  const oldIsTree = oldLayout ? isTreeLayout(oldLayout) : false;
+
+  console.log(
+    "[Layout Switch]",
+    oldLayout,
+    "->",
+    newLayout,
+    "newIsTree:",
+    newIsTree,
+    "oldIsTree:",
+    oldIsTree
+  );
+
+  // Preserve original graph data if not already saved
+  // Use currently rendered graph data, not all data from store
+  if (!originalGraphData.value) {
+    const currentData = graph.getData();
+    console.log(
+      "[Layout] Saving current graph data:",
+      currentData.nodes?.length,
+      "nodes,",
+      currentData.edges?.length,
+      "edges"
+    );
+    if (currentData.nodes && currentData.edges) {
+      originalGraphData.value = {
+        nodes: JSON.parse(JSON.stringify(currentData.nodes)),
+        edges: JSON.parse(JSON.stringify(currentData.edges)),
+      };
+    }
   }
-})
+
+  // Switching to tree layout
+  if (newIsTree && !oldIsTree) {
+    console.log("[Layout] Switching to tree layout, converting data");
+
+    // Use currently rendered nodes, not all nodes from store
+    const currentData = originalGraphData.value || graph.getData();
+    const nodes = currentData.nodes || [];
+    const edges = currentData.edges || [];
+
+    console.log(
+      "[Layout] Converting",
+      nodes.length,
+      "nodes and",
+      edges.length,
+      "edges to tree"
+    );
+
+    // Find root node (or ask user if no active node)
+    let rootId = findBestRoot(nodes, edges);
+
+    if (!rootId && nodes.length > 0) {
+      // TODO: Show dialog to let user select root
+      console.warn("[Layout] No root found, using first node");
+      rootId = nodes[0].id;
+    }
+
+    if (rootId) {
+      treeRootId.value = rootId;
+      const treeData = convertGraphToTree(nodes, edges, rootId);
+      console.log("[Layout] Tree data:", treeData);
+
+      // Convert tree data to graph format using G6's utility
+      const graphDataFromTree = treeToGraphData(treeData);
+      console.log("[Layout] Graph data from tree:", graphDataFromTree);
+
+      graph.setData(graphDataFromTree);
+      graph.setLayout(getLayoutConfig(newLayout));
+      graph.layout();
+      graph.render();
+
+      // Fit view after tree layout
+      setTimeout(() => {
+        graph.fitView();
+      }, 500);
+    }
+  }
+  // Switching from tree to graph layout
+  else if (!newIsTree && oldIsTree) {
+    console.log("[Layout] Switching to graph layout, restoring original data");
+
+    if (originalGraphData.value) {
+      const graphDataObj = {
+        nodes: originalGraphData.value.nodes,
+        edges: originalGraphData.value.edges,
+      };
+
+      graph.setData(graphDataObj);
+      graph.setLayout(getLayoutConfig(newLayout));
+      graph.layout();
+      graph.render();
+    }
+  }
+  // Staying within same data type (graph to graph, or tree to tree)
+  else {
+    if (newIsTree && treeRootId.value) {
+      // Tree to tree - rebuild tree with same root
+      console.log(
+        "[Layout] Tree to tree switch, rebuilding with root:",
+        treeRootId.value
+      );
+
+      const nodes = originalGraphData.value?.nodes || [];
+      const edges = originalGraphData.value?.edges || [];
+      const treeData = convertGraphToTree(nodes, edges, treeRootId.value);
+      const graphDataFromTree = treeToGraphData(treeData);
+
+      graph.setData(graphDataFromTree);
+    }
+
+    graph.setLayout(getLayoutConfig(newLayout));
+    graph.layout();
+  }
+
+  // Start animation on layout change
+  isAnimating.value = true;
+});
 
 // Watch for data changes
-watch(graphData, (newData) => {
-  if (graph) {
-    graph.setData(newData)
-    graph.render()
-    // Don't auto-start animation on data updates
-    // User can manually start if needed
-  }
-}, { deep: true })
+watch(
+  graphData,
+  (newData) => {
+    if (graph) {
+      graph.setData(newData);
+      graph.render();
+      // Don't auto-start animation on data updates
+      // User can manually start if needed
+
+      // Reset original graph data when graph data changes (e.g., after "investigate from here")
+      // This ensures tree layouts use the current graph, not old cached data
+      if (!isTreeLayout(layoutMode.value)) {
+        console.log("[Data] Graph data changed, resetting originalGraphData cache");
+        originalGraphData.value = null;
+      }
+    }
+  },
+  { deep: true }
+);
 
 // Watch for relay dialog open to refresh data
-watch(() => relayDialog.value.show, async (isOpen) => {
-  if (isOpen) {
-    await relayManager.loadRelays()
-    relayManager.updateStats()
+watch(
+  () => relayDialog.value.show,
+  async (isOpen) => {
+    if (isOpen) {
+      await relayManager.loadRelays();
+      relayManager.updateStats();
+    }
   }
-})
+);
+
+// Watch for selected card changes to update CSS classes
+watch(selectedCardId, (newCardId, oldCardId) => {
+  if (!graphRef.value) return;
+
+  // Remove selected class from previous card
+  if (oldCardId) {
+    const oldCard = graphRef.value.querySelector(`[data-item-id="${oldCardId}"]`);
+    if (oldCard) {
+      oldCard.classList.remove("selected");
+    }
+  }
+
+  // Add selected class to new card
+  if (newCardId) {
+    const newCard = graphRef.value.querySelector(`[data-item-id="${newCardId}"]`);
+    if (newCard) {
+      newCard.classList.add("selected");
+    }
+  }
+});
 
 function handleResize() {
   if (graph && graphRef.value) {
-    graph.setSize(
-      graphRef.value.offsetWidth,
-      graphRef.value.offsetHeight
-    )
+    graph.setSize(graphRef.value.offsetWidth, graphRef.value.offsetHeight);
   }
 }
 
 function fitView() {
   if (graph) {
-    graph.fitView()
+    graph.fitView();
   }
 }
 
 function toggleAnimation() {
-  if (!graph) return
-  
+  if (!graph) return;
+
   if (isAnimating.value) {
-    graph.stopLayout()
-    isAnimating.value = false
-    showMessage('Animation stopped', 'info')
+    graph.stopLayout();
+    isAnimating.value = false;
+    showMessage("Animation stopped", "info");
   } else {
-    graph.layout()
-    isAnimating.value = true
-    showMessage('Animation resumed', 'info')
+    graph.layout();
+    isAnimating.value = true;
+    showMessage("Animation resumed", "info");
   }
 }
 
 function refreshGraph() {
   if (graph) {
-    graph.layout()
+    graph.layout();
     // Start animation on explicit refresh
-    isAnimating.value = true
+    isAnimating.value = true;
   }
 }
 
 // Fetch global feed from Nostr relays
 async function fetchGlobal() {
   try {
-    showMessage('Connecting to Nostr relays...', 'info', 5000)
-    const events = await fetchGlobalFeed(20)
-    
+    showMessage("Connecting to Nostr relays...", "info", 5000);
+    const events = await fetchGlobalFeed(20);
+
     if (events.length === 0) {
-      showMessage('No events found. Relays may be slow or empty.', 'warning', 5000)
-      return
+      showMessage("No events found. Relays may be slow or empty.", "warning", 5000);
+      return;
     }
-    
+
     // After fetching, reload from database to show new events
-    await loadFromDb()
-    fitView()
-    
-    showMessage(`Fetched ${events.length} events successfully!`, 'success')
+    await loadFromDb();
+    fitView();
+
+    showMessage(`Fetched ${events.length} events successfully!`, "success");
   } catch (error) {
-    console.error('Failed to fetch global feed:', error)
-    showMessage('Failed to fetch events. Check console for details.', 'error', 5000)
+    console.error("Failed to fetch global feed:", error);
+    showMessage("Failed to fetch events. Check console for details.", "error", 5000);
   }
 }
 
 // Load graph from IndexedDB
 async function loadFromDb() {
   try {
-    await graphStore.loadFromDatabase()
-    const count = graphStore.nodeCount
-    
+    await graphStore.loadFromDatabase();
+    const count = graphStore.nodeCount;
+
     if (count === 0) {
-      showMessage('Database is empty. Try fetching events first.', 'info', 4000)
+      showMessage("Database is empty. Try fetching events first.", "info", 4000);
     } else {
-      showMessage(`Loaded ${count} events from database`, 'success')
+      showMessage(`Loaded ${count} events from database`, "success");
     }
-    
-    fitView()
+
+    fitView();
   } catch (error) {
-    console.error('Failed to load from database:', error)
-    showMessage('Failed to load from database', 'error')
+    console.error("Failed to load from database:", error);
+    showMessage("Failed to load from database", "error");
   }
 }
 
 // Clear all graph data
 function clearAll() {
-  graphStore.clearGraph()
-  showMessage('Graph cleared', 'info')
+  graphStore.clearGraph();
+  showMessage("Graph cleared", "info");
 }
 
 // Relay Manager Functions
@@ -3020,168 +4889,405 @@ function clearAll() {
 
 // Handle adding a new relay
 async function handleAddRelay() {
-  if (!newRelayUrl.value.trim()) return
-  
-  const url = newRelayUrl.value.trim()
-  console.log(`[GraphView] Adding relay: ${url}`)
-  
-  const success = await relayManager.addRelay(url)
+  if (!newRelayUrl.value.trim()) return;
+
+  const url = newRelayUrl.value.trim();
+  console.log(`[GraphView] Adding relay: ${url}`);
+
+  const success = await relayManager.addRelay(url);
   if (success) {
-    console.log(`[GraphView] Relay added to database, reloading relay list...`)
-    newRelayUrl.value = ''
-    
+    console.log(`[GraphView] Relay added to database, reloading relay list...`);
+    newRelayUrl.value = "";
+
     // Reload relay list in useNostr so it includes the new relay
-    await loadRelaysFromDB()
-    
-    // Reload relay manager view  
-    await relayManager.loadRelays()
-    relayManager.updateStats()
-    
+    await loadRelaysFromDB();
+
+    // Reload relay manager view
+    await relayManager.loadRelays();
+    relayManager.updateStats();
+
     // Test the connection for the new relay
-    console.log(`[GraphView] Testing connections for updated relay list...`)
-    await testAllRelayConnections()
-    
+    console.log(`[GraphView] Testing connections for updated relay list...`);
+    await testAllRelayConnections();
+
     // Reload relay manager view again to show test results
-    await relayManager.loadRelays()
-    relayManager.updateStats()
-    
-    showMessage('Relay added successfully', 'success')
+    await relayManager.loadRelays();
+    relayManager.updateStats();
+
+    showMessage("Relay added successfully", "success");
   } else {
-    console.error(`[GraphView] Failed to add relay: ${url}`)
+    console.error(`[GraphView] Failed to add relay: ${url}`);
   }
 }
 
 // Test all relay connections
 async function handleTestConnections() {
-  testingConnections.value = true
+  testingConnections.value = true;
   try {
     // Reload relay list first to ensure we have latest from database
-    await loadRelaysFromDB()
-    await testAllRelayConnections()
-    await relayManager.loadRelays()
-    relayManager.updateStats()
-    showMessage('Relay connections tested', 'success')
+    await loadRelaysFromDB();
+    await testAllRelayConnections();
+    await relayManager.loadRelays();
+    relayManager.updateStats();
+    showMessage("Relay connections tested", "success");
   } catch (error) {
-    console.error('Failed to test relay connections:', error)
-    showMessage('Failed to test connections', 'error')
+    console.error("Failed to test relay connections:", error);
+    showMessage("Failed to test connections", "error");
   } finally {
-    testingConnections.value = false
+    testingConnections.value = false;
   }
 }
 
 // Handle toggling relay enabled/disabled
 async function handleToggleRelay(url: string) {
   try {
-    console.log(`[GraphView] Toggling relay: ${url}`)
-    await relayManager.toggleRelay(url)
-    
+    console.log(`[GraphView] Toggling relay: ${url}`);
+    await relayManager.toggleRelay(url);
+
     // Reload relay list in useNostr to reflect the change
-    await loadRelaysFromDB()
-    
+    await loadRelaysFromDB();
+
     // Reload relay manager view
-    await relayManager.loadRelays()
-    relayManager.updateStats()
-    
+    await relayManager.loadRelays();
+    relayManager.updateStats();
+
     // Test connections for updated relay list
-    console.log(`[GraphView] Testing connections after toggle...`)
-    await testAllRelayConnections()
-    
+    console.log(`[GraphView] Testing connections after toggle...`);
+    await testAllRelayConnections();
+
     // Reload relay manager view again to show test results
-    await relayManager.loadRelays()
-    relayManager.updateStats()
+    await relayManager.loadRelays();
+    relayManager.updateStats();
   } catch (error) {
-    console.error('Failed to toggle relay:', error)
-    showMessage('Failed to toggle relay', 'error')
+    console.error("Failed to toggle relay:", error);
+    showMessage("Failed to toggle relay", "error");
   }
 }
 
 // Handle removing a relay
 async function handleRemoveRelay(url: string) {
   try {
-    console.log(`[GraphView] Removing relay: ${url}`)
-    await relayManager.removeRelay(url)
-    
-    console.log(`[GraphView] Relay removed, reloading relay list...`)
+    console.log(`[GraphView] Removing relay: ${url}`);
+    await relayManager.removeRelay(url);
+
+    console.log(`[GraphView] Relay removed, reloading relay list...`);
     // Reload relay list in useNostr to remove the relay
-    await loadRelaysFromDB()
-    
+    await loadRelaysFromDB();
+
     // Reload relay manager view
-    await relayManager.loadRelays()
-    relayManager.updateStats()
-    
-    showMessage('Relay removed', 'info')
+    await relayManager.loadRelays();
+    relayManager.updateStats();
+
+    showMessage("Relay removed", "info");
   } catch (error) {
-    console.error('Failed to remove relay:', error)
-    showMessage('Failed to remove relay', 'error')
+    console.error("Failed to remove relay:", error);
+    showMessage("Failed to remove relay", "error");
   }
 }
 
 // Get relay status color
 function getRelayStatusColor(status: string): string {
   switch (status) {
-    case 'connected':
-      return 'success'
-    case 'connecting':
-      return 'info'
-    case 'error':
-      return 'error'
-    case 'disconnected':
+    case "connected":
+      return "success";
+    case "connecting":
+      return "info";
+    case "error":
+      return "error";
+    case "disconnected":
     default:
-      return 'grey'
+      return "grey";
   }
 }
 
 // Get relay status icon
 function getRelayStatusIcon(status: string): string {
   switch (status) {
-    case 'connected':
-      return 'mdi-check-circle'
-    case 'connecting':
-      return 'mdi-loading mdi-spin'
-    case 'error':
-      return 'mdi-alert-circle'
-    case 'disconnected':
+    case "connected":
+      return "mdi-check-circle";
+    case "connecting":
+      return "mdi-loading mdi-spin";
+    case "error":
+      return "mdi-alert-circle";
+    case "disconnected":
     default:
-      return 'mdi-circle-outline'
+      return "mdi-circle-outline";
   }
 }
 
 // Format relative time
 function formatRelativeTime(timestamp: number): string {
-  const now = Date.now()
-  const diff = now - timestamp
-  const seconds = Math.floor(diff / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
 
-  if (seconds < 60) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  if (hours < 24) return `${hours}h ago`
-  return `${days}d ago`
+  if (seconds < 60) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
 }
 
 // Show notification message
-function showMessage(message: string, color: string = 'success', timeout: number = 3000) {
+function showMessage(message: string, color: string = "success", timeout: number = 3000) {
   snackbar.value = {
     show: true,
     message,
     color,
     timeout,
-  }
+  };
 }
 
 // Handle expand request (from external UI if needed)
 async function handleExpand(eventId: string) {
   try {
-    showMessage('Loading connected events...', 'info', 5000)
-    await graphStore.expandNode(eventId)
-    fitView()
-    showMessage('Graph expanded successfully', 'success')
+    showMessage("Loading connected events...", "info", 5000);
+    await graphStore.expandNode(eventId);
+    fitView();
+    showMessage("Graph expanded successfully", "success");
   } catch (error) {
-    console.error('Failed to expand node:', error)
-    showMessage('Failed to expand node', 'error')
+    console.error("Failed to expand node:", error);
+    showMessage("Failed to expand node", "error");
   }
+}
+
+// ===== Investigation State Management =====
+
+/**
+ * Capture current graph state
+ */
+function captureCurrentState(): Omit<GraphState, "id" | "createdAt" | "updatedAt"> {
+  // Get expanded card IDs
+  const expandedCardIds: string[] = [];
+  graphStore.nodes.forEach((node: any) => {
+    if (node.data?.expanded) {
+      expandedCardIds.push(node.id);
+    }
+  });
+
+  // Get camera position if available
+  let zoom = null;
+  let pan = null;
+  if (graph) {
+    try {
+      zoom = graph.getZoom();
+      // TODO: G6 v5 camera API might differ, skip pan for now
+      // const camera = graph.getCanvas().getCamera();
+      // pan = { x: camera.x || 0, y: camera.y || 0 };
+    } catch (e) {
+      console.warn("Could not capture camera state:", e);
+    }
+  }
+
+  return {
+    name: currentInvestigationName.value,
+    description: "",
+    graphData: {
+      nodes: JSON.parse(JSON.stringify(graphStore.nodes)),
+      edges: JSON.parse(JSON.stringify(graphStore.edges)),
+    },
+    layoutType: layoutMode.value,
+    selectedNodeId: graphStore.selectedNodeId,
+    activeNodeId: activeNodeId.value,
+    treeRootId: treeRootId.value,
+    expandedCardIds,
+    selectedCardId: selectedCardId.value,
+    zoom,
+    pan,
+    filters: {},
+  };
+}
+
+/**
+ * Save current investigation
+ */
+async function saveCurrentInvestigation() {
+  try {
+    const state = captureCurrentState();
+
+    if (currentInvestigationId.value) {
+      // Update existing
+      await updateGraphState(currentInvestigationId.value, state);
+      showMessage(`Saved "${currentInvestigationName.value}"`, "success");
+    } else {
+      // Create new
+      const saved = await saveGraphState(state);
+      currentInvestigationId.value = saved.id;
+      setLastActiveState(saved.id);
+      showMessage(`Created "${currentInvestigationName.value}"`, "success");
+    }
+  } catch (error) {
+    console.error("Failed to save investigation:", error);
+    showMessage("Failed to save investigation", "error");
+  }
+}
+
+/**
+ * Restore investigation from saved state
+ */
+async function restoreInvestigation(stateId: string) {
+  try {
+    const state = await loadGraphState(stateId);
+    if (!state) {
+      showMessage("Investigation not found", "error");
+      return;
+    }
+
+    // Restore graph data
+    graphStore.setGraphData({
+      nodes: state.graphData.nodes,
+      edges: state.graphData.edges,
+    });
+
+    // Restore UI state
+    layoutMode.value = state.layoutType;
+    graphStore.selectedNodeId = state.selectedNodeId;
+    activeNodeId.value = state.activeNodeId;
+    treeRootId.value = state.treeRootId;
+    selectedCardId.value = state.selectedCardId;
+
+    // Set current investigation
+    currentInvestigationId.value = state.id;
+    currentInvestigationName.value = state.name;
+    setLastActiveState(state.id);
+
+    // Note: expanded cards and zoom/pan will be restored after graph renders
+    // Store them temporarily
+    (window as any).__pendingRestore = {
+      expandedCardIds: state.expandedCardIds,
+      zoom: state.zoom,
+      pan: state.pan,
+    };
+
+    showMessage(`Loaded "${state.name}"`, "success");
+    savedStatesDialog.value = false;
+  } catch (error) {
+    console.error("Failed to restore investigation:", error);
+    showMessage("Failed to restore investigation", "error");
+  }
+}
+
+/**
+ * Load all saved states for dialog
+ */
+async function loadSavedStates() {
+  loadingStates.value = true;
+  try {
+    savedStates.value = await getAllGraphStates();
+  } catch (error) {
+    console.error("Failed to load saved states:", error);
+    showMessage("Failed to load saved states", "error");
+  } finally {
+    loadingStates.value = false;
+  }
+}
+
+/**
+ * Delete a saved investigation
+ */
+async function deleteInvestigation(stateId: string) {
+  try {
+    await deleteGraphState(stateId);
+
+    // If we deleted the current investigation, reset
+    if (currentInvestigationId.value === stateId) {
+      currentInvestigationId.value = null;
+      currentInvestigationName.value = "Untitled Investigation";
+      setLastActiveState(null);
+    }
+
+    await loadSavedStates();
+    showMessage("Investigation deleted", "success");
+  } catch (error) {
+    console.error("Failed to delete investigation:", error);
+    showMessage("Failed to delete investigation", "error");
+  }
+}
+
+/**
+ * Duplicate an investigation
+ */
+async function duplicateInvestigation(stateId: string) {
+  try {
+    const duplicate = await duplicateGraphState(stateId);
+    await loadSavedStates();
+    showMessage(`Duplicated as "${duplicate.name}"`, "success");
+  } catch (error) {
+    console.error("Failed to duplicate investigation:", error);
+    showMessage("Failed to duplicate investigation", "error");
+  }
+}
+
+/**
+ * Export investigation to JSON file
+ */
+async function exportInvestigation(stateId: string) {
+  try {
+    const state = await loadGraphState(stateId);
+    if (!state) return;
+
+    const json = exportGraphState(state);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${state.name.replace(/[^a-z0-9]/gi, "_")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showMessage("Investigation exported", "success");
+  } catch (error) {
+    console.error("Failed to export investigation:", error);
+    showMessage("Failed to export investigation", "error");
+  }
+}
+
+/**
+ * Import investigation from JSON file
+ */
+function importInvestigation() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json";
+  input.onchange = async (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const imported = await importGraphState(text);
+      await loadSavedStates();
+      showMessage(`Imported "${imported.name}"`, "success");
+    } catch (error) {
+      console.error("Failed to import investigation:", error);
+      showMessage("Failed to import investigation", "error");
+    }
+  };
+  input.click();
+}
+
+/**
+ * Create new investigation
+ */
+function createNewInvestigation() {
+  currentInvestigationId.value = null;
+  currentInvestigationName.value = "Untitled Investigation";
+  setLastActiveState(null);
+  graphStore.clearGraph();
+  showMessage("Started new investigation", "info");
+}
+
+/**
+ * Rename investigation inline
+ */
+function startRenaming() {
+  isEditingName.value = true;
+}
+
+function finishRenaming() {
+  isEditingName.value = false;
 }
 </script>
 
@@ -3238,6 +5344,22 @@ async function handleExpand(eventId: string) {
 :deep(.node-circle:hover) {
   transform: scale(1.1);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Active node marker (selected/clicked node) */
+:deep(.node-circle.active-node) {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Tree root node marker (red border) */
+:deep(.node-circle.tree-root-node) {
+  border: 3px solid #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+:deep(.node-circle.tree-root-node:hover) {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
 :deep(.node-circle.pubkey-node) {
@@ -3317,6 +5439,13 @@ async function handleExpand(eventId: string) {
   display: flex;
   flex-direction: column;
   font-family: system-ui, -apple-system, sans-serif;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Selected card state */
+:deep(.event-node.selected) {
+  border: 3px solid #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), 0 12px 28px rgba(0, 0, 0, 0.14);
 }
 
 :deep(.event-titlebar) {
@@ -3326,9 +5455,9 @@ async function handleExpand(eventId: string) {
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  background: linear-gradient(#fafafa, #f1f1f1);
   user-select: none;
   cursor: pointer;
+  /* Background color is set inline via style attribute based on kind */
 }
 
 :deep(.event-left) {
@@ -3343,15 +5472,18 @@ async function handleExpand(eventId: string) {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
   white-space: nowrap;
   flex-shrink: 0;
+  font-weight: 600;
 }
 
 :deep(.event-title) {
   font-weight: 600;
   font-size: 13px;
+  color: white;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3361,8 +5493,9 @@ async function handleExpand(eventId: string) {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
   cursor: pointer;
   line-height: 22px;
   text-align: center;
@@ -3370,10 +5503,12 @@ async function handleExpand(eventId: string) {
   font-size: 18px;
   user-select: none;
   flex-shrink: 0;
+  transition: all 0.2s;
 }
 
 :deep(.event-close:hover) {
-  background: #f5f5f5;
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
 :deep(.event-preview) {
@@ -3388,10 +5523,12 @@ async function handleExpand(eventId: string) {
 
 :deep(.event-body) {
   flex: 1;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px;
   font-size: 13px;
   line-height: 1.5;
+  min-height: 0; /* Important for flexbox scrolling */
 }
 
 :deep(.event-meta) {
@@ -3410,6 +5547,137 @@ async function handleExpand(eventId: string) {
   white-space: pre-wrap;
   word-wrap: break-word;
   color: #333;
+}
+
+/* Event card author section */
+:deep(.event-author) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+
+:deep(.author-avatar) {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: white;
+  flex-shrink: 0;
+}
+
+:deep(.author-info) {
+  flex: 1;
+  min-width: 0;
+}
+
+:deep(.author-name) {
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Event tags */
+:deep(.event-tags) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+:deep(.tag-badge) {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+:deep(.tag-badge:hover) {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+/* Event mentions */
+:deep(.event-mentions) {
+  font-size: 11px;
+  color: #666;
+  margin-top: 10px;
+  margin-bottom: 8px;
+}
+
+:deep(.mentions-label) {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+:deep(.mention-badge) {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  cursor: pointer;
+  margin-right: 4px;
+  transition: all 0.2s;
+}
+
+:deep(.mention-badge:hover) {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+:deep(.mention-more) {
+  color: #999;
+  font-style: italic;
+}
+
+/* Event footer - always visible at bottom */
+:deep(.event-footer) {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  background: #fafafa;
+}
+
+/* Event stats */
+:deep(.event-stats) {
+  display: flex;
+  gap: 16px;
+}
+
+:deep(.stat-item) {
+  font-size: 12px;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+:deep(.stat-item.has-count) {
+  color: #333;
+  font-weight: 600;
+}
+
+:deep(.stat-item:hover) {
+  color: #6366f1;
+  transform: translateY(-1px);
+}
+
+/* Thread indicator in titlebar */
+:deep(.thread-indicator) {
+  font-size: 14px;
+  opacity: 0.7;
 }
 
 :deep(.collapsed .event-body) {
@@ -3439,9 +5707,14 @@ async function handleExpand(eventId: string) {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+.v-theme--dark :deep(.event-node.selected) {
+  border: 3px solid #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2), 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
 .v-theme--dark :deep(.event-titlebar) {
-  background: linear-gradient(#2a2a2a, #1e1e1e);
   border-bottom-color: rgba(255, 255, 255, 0.1);
+  /* Background color is set inline via style attribute based on kind */
 }
 
 .v-theme--dark :deep(.event-content),
@@ -3453,9 +5726,66 @@ async function handleExpand(eventId: string) {
   color: #999;
 }
 
+.v-theme--dark :deep(.author-name) {
+  color: #e0e0e0;
+}
+
+.v-theme--dark :deep(.event-author) {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.v-theme--dark :deep(.event-footer) {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  background: #1a1a1a;
+}
+
+.v-theme--dark :deep(.event-stats) {
+  /* No border needed - footer has it */
+}
+
+.v-theme--dark :deep(.stat-item) {
+  color: #666;
+}
+
+.v-theme--dark :deep(.stat-item.has-count) {
+  color: #e0e0e0;
+}
+
+.v-theme--dark :deep(.event-mentions) {
+  color: #999;
+}
+
+.v-theme--dark :deep(.event-content) {
+  color: #e0e0e0;
+}
+
 /* Profile card specific styles */
 :deep(.profile-card) {
   border-color: rgba(99, 102, 241, 0.4);
+}
+
+:deep(.profile-card .event-titlebar) {
+  background: linear-gradient(#fafafa, #f1f1f1);
+}
+
+:deep(.profile-card .event-badge) {
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.03);
+  color: #333;
+}
+
+:deep(.profile-card .event-title) {
+  color: #333;
+}
+
+:deep(.profile-card .event-close) {
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #fff;
+  color: #333;
+}
+
+:deep(.profile-card .event-close:hover) {
+  background: #f5f5f5;
 }
 
 :deep(.profile-picture-large) {
@@ -3481,6 +5811,30 @@ async function handleExpand(eventId: string) {
 
 .v-theme--dark :deep(.profile-bio) {
   color: #aaa;
+}
+
+.v-theme--dark :deep(.profile-card .event-titlebar) {
+  background: linear-gradient(#2a2a2a, #1e1e1e);
+}
+
+.v-theme--dark :deep(.profile-card .event-badge) {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e0e0e0;
+}
+
+.v-theme--dark :deep(.profile-card .event-title) {
+  color: #e0e0e0;
+}
+
+.v-theme--dark :deep(.profile-card .event-close) {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #e0e0e0;
+}
+
+.v-theme--dark :deep(.profile-card .event-close:hover) {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* New minimalistic card design */
@@ -3750,14 +6104,14 @@ async function handleExpand(eventId: string) {
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
     opacity: 0.6;
   }
 }
-
 
 /* Dark theme support for new cards */
 .v-theme--dark :deep(.nostr-card) {
@@ -3890,4 +6244,3 @@ async function handleExpand(eventId: string) {
   background: rgba(239, 83, 80, 0.15);
 }
 </style>
-

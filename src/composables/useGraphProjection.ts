@@ -27,15 +27,24 @@ export function eventToNode(event: NostrEvent): GraphNode {
 export function extractEdges(event: NostrEvent): GraphEdge[] {
   const edges: GraphEdge[] = []
 
+  // Determine base edge type from event kind
+  let baseType = 'reference'
+  if (event.kind === 6) {
+    baseType = 'repost' // Kind 6 = repost
+  } else if (event.kind === 7) {
+    baseType = 'reaction' // Kind 7 = reaction
+  }
+
   for (const tag of event.tags) {
-    // Event references (replies, quotes)
+    // Event references (replies, quotes, reactions, reposts)
     if (tag[0] === 'e' && tag[1]) {
+      const marker = tag[3] || 'mention' // root, reply, mention
       edges.push({
         source: event.id,
         target: tag[1],
         data: {
-          type: 'reference',
-          marker: tag[3] || 'mention', // root, reply, mention
+          type: baseType === 'reference' ? 'reference' : baseType,
+          marker: marker,
         },
       })
     }

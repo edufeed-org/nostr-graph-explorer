@@ -4,43 +4,50 @@ export interface GraphState {
   id: string
   name: string
   description: string
-  nodeIds: string[] // List of event IDs in this graph state
+  // Graph data
+  graphData: {
+    nodes: any[]
+    edges: any[]
+  }
+  // UI state
+  layoutType: string
+  selectedNodeId: string | null
+  activeNodeId: string | null
+  treeRootId: string | null
+  expandedCardIds: string[]
+  selectedCardId: string | null
+  // Camera state
+  zoom: number | null
+  pan: { x: number; y: number } | null
+  // Filters
   filters: {
     kinds?: number[]
     authors?: string[]
     timeRange?: [number, number]
     tags?: string[][]
   }
-  layout: string // 'force', 'tree', 'circular', etc.
+  // Metadata
   createdAt: number
   updatedAt: number
 }
 
 /**
- * Save a graph state snapshot
+ * Save a complete graph state snapshot
  */
 export async function saveGraphState(
-  name: string,
-  description: string,
-  nodeIds: string[],
-  filters: GraphState['filters'],
-  layout: string,
+  state: Omit<GraphState, 'id' | 'createdAt' | 'updatedAt'>,
 ): Promise<GraphState> {
-  const state: GraphState = {
+  const fullState: GraphState = {
+    ...state,
     id: crypto.randomUUID(),
-    name,
-    description,
-    nodeIds,
-    filters,
-    layout,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
 
   const db = await getDB()
-  await db.put('graphStates', state)
+  await db.put('graphStates', fullState)
 
-  return state
+  return fullState
 }
 
 /**
@@ -98,4 +105,75 @@ export async function getRecentGraphStates(
 ): Promise<GraphState[]> {
   const states = await getAllGraphStates()
   return states.slice(0, limit)
+}
+
+/**
+ * Duplicate an existing graph state
+ */
+export async function duplicateGraphState(
+  stateId: string,
+  newName?: string,
+): Promise<GraphState> {
+  const db = await getDB()
+  const original = await db.get('graphStates', stateId)
+
+  if (!original) {
+    throw new Error(`Graph state ${stateId} not found`)
+  }
+
+  const duplicate: GraphState = {
+    ...original,
+    id: crypto.randomUUID(),
+    name: newName || `${original.name} (copy)`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+
+  await db.put('graphStates', duplicate)
+  return duplicate
+}
+
+/**
+ * Export a graph state to JSON
+ */
+export function exportGraphState(state: GraphState): string {
+  return JSON.stringify(state, null, 2)
+}
+
+/**
+ * Import a graph state from JSON
+ */
+export async function importGraphState(json: string): Promise<GraphState> {
+  const state = JSON.parse(json) as GraphState
+
+  // Generate new ID and timestamps
+  state.id = crypto.randomUUID()
+  state.createdAt = Date.now()
+  state.updatedAt = Date.now()
+
+  const db = await getDB()
+  await db.put('graphStates', state)
+
+  return state
+}
+
+// Local storage key for last active state
+const LAST_STATE_KEY = 'nostr-graph:last-active-state'
+
+/**
+ * Set the last active graph state ID
+ */
+export function setLastActiveState(stateId: string | null): void {
+  if (stateId) {
+    localStorage.setItem(LAST_STATE_KEY, stateId)
+  } else {
+    localStorage.removeItem(LAST_STATE_KEY)
+  }
+}
+
+/**
+ * Get the last active graph state ID
+ */
+export function getLastActiveState(): string | null {
+  return localStorage.getItem(LAST_STATE_KEY)
 }
