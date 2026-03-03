@@ -1055,6 +1055,46 @@
           ></v-slider>
         </div>
 
+        <div v-else-if="layoutMode === 'fishbone'" class="mb-2">
+          <div class="text-caption text-medium-emphasis mb-1">Direction</div>
+          <v-select
+            v-model="layoutSettings.fishbone.direction"
+            :items="[
+              { title: 'Horizontal (H)', value: 'H' },
+              { title: 'Vertical (V)', value: 'V' },
+              { title: 'Left to Right (LR)', value: 'LR' },
+              { title: 'Right to Left (RL)', value: 'RL' },
+              { title: 'Top to Bottom (TB)', value: 'TB' },
+              { title: 'Bottom to Top (BT)', value: 'BT' },
+            ]"
+            label="Direction"
+            density="compact"
+            hide-details
+            class="mb-2"
+          ></v-select>
+
+          <div class="text-caption text-medium-emphasis mb-1">Spacing</div>
+          <v-slider
+            v-model="layoutSettings.fishbone.hGap"
+            :min="10"
+            :max="200"
+            label="Horizontal Gap"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.fishbone.vGap"
+            :min="10"
+            :max="200"
+            label="Vertical Gap"
+            thumb-label
+            density="compact"
+            hide-details
+          ></v-slider>
+        </div>
+
         <div v-else class="mb-2">
           <p class="text-caption text-medium-emphasis">No settings for this layout</p>
         </div>
@@ -1485,6 +1525,11 @@ const layoutSettings = ref({
   mds: {
     linkDistance: 200,
     center: { x: 0, y: 0 },
+  },
+  fishbone: {
+    direction: "LR",
+    hGap: 50,
+    vGap: 50,
   },
 });
 
@@ -2305,9 +2350,11 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
       const visitedNeighbor = neighbors.find(n => visited.has(n));
 
       if (visitedNeighbor) {
-        // Add this node as a child of a visited neighbor
+        // Add this node as a child of a visited neighbor (check for duplicates)
         const existingChildren = treeChildren.get(visitedNeighbor) || [];
-        treeChildren.set(visitedNeighbor, [...existingChildren, nodeId]);
+        if (!existingChildren.includes(nodeId)) {
+          treeChildren.set(visitedNeighbor, [...existingChildren, nodeId]);
+        }
 
         // Set depth one level deeper than the parent
         const parentDepth = depthMap.get(visitedNeighbor) || 0;
@@ -2332,7 +2379,15 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
           });
 
           if (validChildren.length > 0) {
-            treeChildren.set(id, [...(treeChildren.get(id) || []), ...validChildren]);
+            // Merge with existing children, avoiding duplicates
+            const existing = treeChildren.get(id) || [];
+            const merged = [...existing];
+            validChildren.forEach(child => {
+              if (!merged.includes(child)) {
+                merged.push(child);
+              }
+            });
+            treeChildren.set(id, merged);
           }
         }
       }
@@ -2343,6 +2398,9 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
   if (orphanedNodes.length > 0) {
     console.log("[Tree] Found", orphanedNodes.length, "orphaned nodes. Creating virtual super-root.");
 
+    // Ensure rootId is not in orphanedNodes (should never happen, but safety check)
+    const cleanOrphans = orphanedNodes.filter(id => id !== rootId);
+
     // Add virtual root
     const superRoot = {
       id: "__tree_super_root__",
@@ -2351,15 +2409,15 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
         isVirtualRoot: true,
         kind: -1,
       },
-      children: [rootId, ...orphanedNodes],
+      children: [rootId, ...cleanOrphans],
       depth: 0,
     };
 
     // Add main root and orphans as children of super-root
-    treeChildren.set("__tree_super_root__", [rootId, ...orphanedNodes]);
+    treeChildren.set("__tree_super_root__", [rootId, ...cleanOrphans]);
 
     // Process orphaned nodes with BFS to find their subtrees
-    orphanedNodes.forEach(orphanId => {
+    cleanOrphans.forEach(orphanId => {
       const orphanQueue: Array<{ id: string; depth: number }> = [{ id: orphanId, depth: 1 }];
 
       while (orphanQueue.length > 0) {
@@ -2392,12 +2450,18 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
     });
     newDepthMap.set("__tree_super_root__", 0);
 
-    // Create enriched nodes including super-root
+    // Deduplicate all children arrays in treeChildren to prevent duplicate edges
+    const deduplicatedTreeChildren = new Map<string, string[]>();
+    treeChildren.forEach((children, parent) => {
+      deduplicatedTreeChildren.set(parent, Array.from(new Set(children)));
+    });
+
+    // Create enriched nodes including super-root (using deduplicated children)
     const enrichedNodes = [
       superRoot,
       ...nodes.map(node => ({
         ...node,
-        children: treeChildren.get(node.id) || [],
+        children: deduplicatedTreeChildren.get(node.id) || [],
         depth: newDepthMap.get(node.id) ?? 0,
       }))
     ];
@@ -2406,7 +2470,7 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
     // Start with super-root edges
     const treeEdges: any[] = [
       { source: "__tree_super_root__", target: rootId, data: { type: "tree-structure" } },
-      ...orphanedNodes.map(id => ({
+      ...cleanOrphans.map(id => ({
         source: "__tree_super_root__",
         target: id,
         data: { type: "tree-structure" }
@@ -2418,7 +2482,7 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
     treeEdges.forEach(e => addedEdges.add(`${e.source}->${e.target}`));
 
     // Add edges for all other parent-child relationships
-    treeChildren.forEach((children, parent) => {
+    deduplicatedTreeChildren.forEach((children, parent) => {
       // Skip super-root edges (already added above)
       if (parent === "__tree_super_root__") return;
 
@@ -2469,16 +2533,74 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
 
     console.log("[Tree] Created", treeEdges.length, "tree edges for", enrichedNodes.length, "nodes (with super-root)");
 
+    // ALWAYS validate tree structure to prevent cycles (even if count is correct)
+    // Build parent map and detect cycles by ensuring each node has at most one parent
+    const parentMap = new Map<string, string>();
+    const seenEdges = new Set<string>();
+    const validEdges: any[] = [];
+
+    treeEdges.forEach(edge => {
+      const edgeKey = `${edge.source}->${edge.target}`;
+
+      // Skip duplicates
+      if (seenEdges.has(edgeKey)) {
+        console.warn("[Tree] Removing duplicate edge:", edgeKey);
+        return;
+      }
+
+      // Check for cycle: target should not already have a parent
+      if (parentMap.has(edge.target)) {
+        console.warn("[Tree] Removing edge that creates multiple parents:", edgeKey, "(target already has parent:", parentMap.get(edge.target), ")");
+        return;
+      }
+
+      seenEdges.add(edgeKey);
+      parentMap.set(edge.target, edge.source);
+      validEdges.push(edge);
+    });
+
+    // Check if validation removed any edges
+    if (validEdges.length !== treeEdges.length) {
+      console.warn("[Tree] Removed", treeEdges.length - validEdges.length, "invalid edges. New count:", validEdges.length);
+    }
+
+    // Verify final edge count
+    if (validEdges.length !== enrichedNodes.length - 1) {
+      console.warn("[Tree] Invalid tree (super-root): expected", enrichedNodes.length - 1, "edges but got", validEdges.length);
+    }
+
+    // Update enriched nodes to match validated edges
+    const validatedChildrenMap = new Map<string, string[]>();
+    validEdges.forEach(edge => {
+      const children = validatedChildrenMap.get(edge.source) || [];
+      children.push(edge.target);
+      validatedChildrenMap.set(edge.source, children);
+    });
+
+    const cleanedNodes = enrichedNodes.map(node => ({
+      ...node,
+      children: validatedChildrenMap.get(node.id) || [],
+    }));
+
+    console.log("[Tree] Returning validated tree with", cleanedNodes.length, "nodes and", validEdges.length, "edges");
+
     return {
-      nodes: enrichedNodes,
-      edges: treeEdges,
+      nodes: cleanedNodes,
+      edges: validEdges,
     };
   }
 
   // No orphaned nodes - return simple tree
+
+  // Deduplicate all children arrays in treeChildren to prevent duplicate edges
+  const deduplicatedTreeChildren = new Map<string, string[]>();
+  treeChildren.forEach((children, parent) => {
+    deduplicatedTreeChildren.set(parent, Array.from(new Set(children)));
+  });
+
   const enrichedNodes = nodes.map(node => ({
     ...node,
-    children: treeChildren.get(node.id) || [],
+    children: deduplicatedTreeChildren.get(node.id) || [],
     depth: depthMap.get(node.id) ?? 0,
   }));
 
@@ -2488,7 +2610,7 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
   const treeEdges: any[] = [];
   const addedEdges = new Set<string>(); // Track edges to prevent duplicates
 
-  treeChildren.forEach((children, parent) => {
+  deduplicatedTreeChildren.forEach((children, parent) => {
     children.forEach(child => {
       const edgeKey = `${parent}->${child}`;
       const reverseEdgeKey = `${child}->${parent}`;
@@ -2536,9 +2658,60 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
 
   console.log("[Tree] Created", treeEdges.length, "tree edges for", enrichedNodes.length, "nodes");
 
+  // ALWAYS validate tree structure to prevent cycles (even if count is correct)
+  // Build parent map and detect cycles by ensuring each node has at most one parent
+  const parentMap = new Map<string, string>();
+  const seenEdges = new Set<string>();
+  const validEdges: any[] = [];
+
+  treeEdges.forEach(edge => {
+    const edgeKey = `${edge.source}->${edge.target}`;
+
+    // Skip duplicates
+    if (seenEdges.has(edgeKey)) {
+      console.warn("[Tree] Removing duplicate edge:", edgeKey);
+      return;
+    }
+
+    // Check for cycle: target should not already have a parent
+    if (parentMap.has(edge.target)) {
+      console.warn("[Tree] Removing edge that creates multiple parents:", edgeKey, "(target already has parent:", parentMap.get(edge.target), ")");
+      return;
+    }
+
+    seenEdges.add(edgeKey);
+    parentMap.set(edge.target, edge.source);
+    validEdges.push(edge);
+  });
+
+  // Check if validation removed any edges
+  if (validEdges.length !== treeEdges.length) {
+    console.warn("[Tree] Removed", treeEdges.length - validEdges.length, "invalid edges. New count:", validEdges.length);
+  }
+
+  // Verify final edge count
+  if (validEdges.length !== enrichedNodes.length - 1) {
+    console.warn("[Tree] Invalid tree: expected", enrichedNodes.length - 1, "edges but got", validEdges.length);
+  }
+
+  // Update enriched nodes to match validated edges
+  const validatedChildrenMap = new Map<string, string[]>();
+  validEdges.forEach(edge => {
+    const children = validatedChildrenMap.get(edge.source) || [];
+    children.push(edge.target);
+    validatedChildrenMap.set(edge.source, children);
+  });
+
+  const cleanedNodes = enrichedNodes.map(node => ({
+    ...node,
+    children: validatedChildrenMap.get(node.id) || [],
+  }));
+
+  console.log("[Tree] Returning validated tree with", cleanedNodes.length, "nodes and", validEdges.length, "edges");
+
   return {
-    nodes: enrichedNodes,
-    edges: treeEdges,
+    nodes: cleanedNodes,
+    edges: validEdges,
   };
 }
 
@@ -2745,7 +2918,9 @@ function getLayoutConfig(type: string) {
     case "fishbone":
       return {
         type: "fishbone",
-        direction: "LR",
+        direction: layoutSettings.value.fishbone.direction,
+        hGap: layoutSettings.value.fishbone.hGap,
+        vGap: layoutSettings.value.fishbone.vGap,
       };
 
     case "random":
@@ -4333,6 +4508,49 @@ onMounted(() => {
     animation: {
       duration: 300, // Faster transitions (default is 500ms)
     },
+
+    plugins: [
+      {
+        type: "tooltip",
+        enable: (event: any) => event.targetType === "edge",
+        getContent: (_event: any, items: any[]) => {
+          if (!items || items.length === 0) return "";
+          const edge = items[0];
+          const style = getEdgeStyle(edge);
+          const type = edge.data?.type || "unknown";
+          const marker = edge.data?.marker || "";
+
+          let description = style.label;
+          let details = "";
+
+          // Add contextual information based on edge type
+          if (type === "authored-by") {
+            details = "Identity relationship - connects content to its creator";
+          } else if (type === "reference" && marker === "reply") {
+            details = "Conversation thread - this is a direct reply";
+          } else if (type === "reference") {
+            details = "Content reference - links to related content";
+          } else if (type === "mention") {
+            details = "User mention - references another user";
+          } else if (type === "repost") {
+            details = "Amplification - shares content to wider audience";
+          } else if (type === "reaction") {
+            details = "Engagement - expresses reaction to content";
+          } else if (type === "tree-structure") {
+            details = "Tree layout structural edge";
+          } else {
+            details = "Connection between nodes";
+          }
+
+          return `
+            <div style="padding: 8px 12px; background: rgba(0, 0, 0, 0.85); color: white; border-radius: 6px; font-size: 12px; max-width: 250px;">
+              <div style="font-weight: 600; margin-bottom: 4px; color: ${style.stroke};">${description}</div>
+              <div style="opacity: 0.9; line-height: 1.4;">${details}</div>
+            </div>
+          `;
+        },
+      },
+    ],
 
     behaviors: [
       "drag-canvas",
