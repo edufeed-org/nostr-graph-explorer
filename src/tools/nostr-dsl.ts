@@ -116,6 +116,20 @@ function decodeAuthor(value: string): string {
   return value
 }
 
+function decodeEventId(value: string): string | null {
+  try {
+    const decoded = nip19.decode(value)
+    if (decoded.type === 'note') return decoded.data as string
+    if (decoded.type === 'nevent') return (decoded.data as any).id
+  } catch {}
+  return null
+}
+
+function isNostrIdentifier(value: string): boolean {
+  // Check if it looks like a nostr bech32 identifier
+  return /^(npub|nprofile|note|nevent|naddr)[a-z0-9]{59,}$/i.test(value)
+}
+
 export function parseNostrQuery(q: string): NostrFilter {
   const filter: NostrFilter = {}
   const searchParts: string[] = []
@@ -126,7 +140,31 @@ export function parseNostrQuery(q: string): NostrFilter {
     const match = token.match(/^([^:]+):(.+)$/)
 
     if (!match) {
-      searchParts.push(token.replace(/^"|"$/g, ''))
+      // Token without "field:" prefix
+      const cleanToken = token.replace(/^"|"$/g, '')
+
+      // Check if it's a nostr identifier (npub, nprofile, note, nevent, etc.)
+      if (isNostrIdentifier(cleanToken)) {
+        // Try to decode as author (npub/nprofile)
+        const authorPubkey = decodeAuthor(cleanToken)
+        if (authorPubkey !== cleanToken) {
+          // Successfully decoded as npub/nprofile
+          filter.authors ??= []
+          filter.authors.push(authorPubkey)
+          continue
+        }
+
+        // Try to decode as event ID (note/nevent)
+        const eventId = decodeEventId(cleanToken)
+        if (eventId) {
+          filter.ids ??= []
+          filter.ids.push(eventId)
+          continue
+        }
+      }
+
+      // Not a nostr identifier, add to search text
+      searchParts.push(cleanToken)
       continue
     }
 
@@ -157,7 +195,11 @@ export function parseNostrQuery(q: string): NostrFilter {
 
       case 'id':
         filter.ids ??= []
-        values.forEach((v) => filter.ids!.push(v))
+        values.forEach((v) => {
+          // Try to decode note/nevent, otherwise use as-is
+          const eventId = decodeEventId(v)
+          filter.ids!.push(eventId || v)
+        })
         break
 
       case '#t':

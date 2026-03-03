@@ -147,7 +147,10 @@ export const useGraphStore = defineStore('graph', {
      * Update graph with new events (for live subscriptions)
      */
     updateWithEvents(events: NostrEvent[]) {
-      const { nodes, edges } = eventsToGraph(events)
+      // Pass existing node IDs so edges to existing nodes aren't filtered out
+      const existingNodeIds = new Set(this.nodes.map((n) => n.id))
+      const { nodes, edges } = eventsToGraph(events, existingNodeIds)
+
       nodes.forEach((node) => this.addNode(node))
       edges.forEach((edge) => this.addEdge(edge))
     },

@@ -108,7 +108,10 @@ function getEventLabel(event: NostrEvent): string {
 /**
  * Convert multiple events to graph data
  */
-export function eventsToGraph(events: NostrEvent[]): {
+export function eventsToGraph(
+  events: NostrEvent[],
+  existingNodeIds?: Set<string>,
+): {
   nodes: GraphNode[]
   edges: GraphEdge[]
 } {
@@ -147,9 +150,14 @@ export function eventsToGraph(events: NostrEvent[]): {
     edges.push(...eventEdges)
   }
 
+  // Combine new node IDs with existing node IDs for edge validation
+  const allNodeIds = existingNodeIds
+    ? new Set([...nodeIds, ...existingNodeIds])
+    : nodeIds
+
   // Filter edges to only include those where both source and target nodes exist
   const validEdges = edges.filter(
-    (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+    (edge) => allNodeIds.has(edge.source) && allNodeIds.has(edge.target),
   )
 
   console.log(

@@ -1020,6 +1020,41 @@
           ></v-slider>
         </div>
 
+        <div v-else-if="layoutMode === 'mds'" class="mb-2">
+          <div class="text-caption text-medium-emphasis mb-1">MDS Layout Settings</div>
+          <v-slider
+            v-model="layoutSettings.mds.linkDistance"
+            :min="50"
+            :max="5000"
+            :step="10"
+            label="Link Distance"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.mds.center.x"
+            :min="-500"
+            :max="500"
+            label="Center X"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+          <v-slider
+            v-model="layoutSettings.mds.center.y"
+            :min="-500"
+            :max="500"
+            label="Center Y"
+            thumb-label
+            density="compact"
+            hide-details
+            class="mb-1"
+          ></v-slider>
+        </div>
+
         <div v-else class="mb-2">
           <p class="text-caption text-medium-emphasis">No settings for this layout</p>
         </div>
@@ -1304,7 +1339,7 @@ const graphRef = ref<HTMLElement | null>(null);
 let graph: Graph | null = null;
 let layoutSettingsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-const layoutMode = ref("circular");
+const layoutMode = ref("mds");
 
 // All layout options with tree/non-tree classification
 const allLayoutOptions = [
@@ -1447,6 +1482,10 @@ const layoutSettings = ref({
     clustering: false,
     clusterGravity: 10,
   },
+  mds: {
+    linkDistance: 200,
+    center: { x: 0, y: 0 },
+  },
 });
 
 const graphStore = useGraphStore();
@@ -1515,14 +1554,10 @@ const isTreeCompatible = computed(() => {
   return true; // No cycles, tree-compatible
 });
 
-// Filter layout options based on graph structure
+// All layout options are always available
+// Tree layouts will create a spanning tree from any graph structure
 const layoutOptions = computed(() => {
-  return allLayoutOptions.filter((option) => {
-    if (option.requiresTree) {
-      return isTreeCompatible.value;
-    }
-    return true;
-  });
+  return allLayoutOptions;
 });
 
 const {
@@ -1782,6 +1817,15 @@ function getEngagementMetrics(
 
 // Helper: Render HTML for event node
 function renderEventNode(d: any): string {
+  // Handle virtual tree root
+  if (d.id === "__tree_super_root__" && d.data?.isVirtualRoot) {
+    return `
+      <div class="node-circle virtual-root-node" data-item-id="${d.id}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: 4px solid #667eea;">
+        <span class="node-emoji" style="font-size: 32px;">🌳</span>
+      </div>
+    `;
+  }
+
   // Handle tag nodes
   if (d.data?.type === "tag") {
     const tag = d.data?.tag || "";
@@ -2162,13 +2206,12 @@ function findBestRoot(nodes: any[], edges: any[]): string | null {
   return bestNode.id;
 }
 
-// Convert graph data to tree-compatible format for G6 layouts
-// This is much faster than convertGraphToTree + treeToGraphData
-// because it directly adds children and depth properties without building nested structure
+// Convert any graph to tree-compatible format for G6 layouts
+// Creates a spanning tree that includes all nodes, handling cycles and disconnected components
 function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: any[], edges: any[] } {
   console.log("[Tree] Preparing tree data with root:", rootId, "nodes:", nodes.length, "edges:", edges.length);
 
-  // Build adjacency map: parent -> children IDs
+  // Build directed adjacency map for tree structure: parent -> children IDs
   const childrenMap = new Map<string, string[]>();
   edges.forEach((edge) => {
     if (!childrenMap.has(edge.source)) {
@@ -2177,77 +2220,325 @@ function prepareTreeData(nodes: any[], edges: any[], rootId: string): { nodes: a
     childrenMap.get(edge.source)!.push(edge.target);
   });
 
-  // Calculate depth for each node using BFS from root
+  // Build bidirectional adjacency map for finding connected components
+  const adjacencyMap = new Map<string, string[]>();
+  nodes.forEach(node => {
+    adjacencyMap.set(node.id, []);
+  });
+  edges.forEach((edge) => {
+    // Add edge in both directions for connectivity checking
+    adjacencyMap.get(edge.source)!.push(edge.target);
+    adjacencyMap.get(edge.target)!.push(edge.source);
+  });
+
+  // First pass: Find all nodes in the connected component containing the root
+  // This uses bidirectional edges to ensure we find all connected nodes
+  const connectedNodes = new Set<string>();
+  const connectivityQueue: string[] = [rootId];
+
+  while (connectivityQueue.length > 0) {
+    const nodeId = connectivityQueue.shift()!;
+    if (connectedNodes.has(nodeId)) continue;
+
+    connectedNodes.add(nodeId);
+
+    const neighbors = adjacencyMap.get(nodeId) || [];
+    neighbors.forEach(neighborId => {
+      if (!connectedNodes.has(neighborId)) {
+        connectivityQueue.push(neighborId);
+      }
+    });
+  }
+
+  // Second pass: Build spanning tree using directed edges (for proper parent-child relationships)
   const depthMap = new Map<string, number>();
+  const treeChildren = new Map<string, string[]>(); // Tree edges only (no cycles)
   const queue: Array<{ id: string; depth: number }> = [{ id: rootId, depth: 0 }];
   const visited = new Set<string>();
 
   while (queue.length > 0) {
     const { id, depth } = queue.shift()!;
-    
-    if (visited.has(id)) continue; // Prevent cycles
+
+    if (visited.has(id)) continue; // Skip already visited (breaks cycles)
     visited.add(id);
     depthMap.set(id, depth);
 
     const children = childrenMap.get(id) || [];
+    const validChildren: string[] = [];
+
     children.forEach(childId => {
       if (!visited.has(childId)) {
+        validChildren.push(childId);
         queue.push({ id: childId, depth: depth + 1 });
+      }
+    });
+
+    if (validChildren.length > 0) {
+      treeChildren.set(id, validChildren);
+    }
+  }
+
+  // Find truly orphaned nodes (in disconnected components)
+  const orphanedNodes: string[] = [];
+  nodes.forEach(node => {
+    if (!connectedNodes.has(node.id)) {
+      orphanedNodes.push(node.id);
+    }
+  });
+
+  // Find nodes that are connected but not visited by directed BFS
+  // These need to be added to the tree using reverse edges
+  const unvisitedConnected: string[] = [];
+  connectedNodes.forEach(nodeId => {
+    if (!visited.has(nodeId)) {
+      unvisitedConnected.push(nodeId);
+    }
+  });
+
+  // Add unvisited connected nodes to the tree by finding paths using bidirectional edges
+  if (unvisitedConnected.length > 0) {
+    console.log("[Tree] Found", unvisitedConnected.length, "connected but unreachable nodes (using bidirectional edges to add them)");
+
+    unvisitedConnected.forEach(nodeId => {
+      // Find a visited node that's adjacent to this unvisited node
+      const neighbors = adjacencyMap.get(nodeId) || [];
+      const visitedNeighbor = neighbors.find(n => visited.has(n));
+
+      if (visitedNeighbor) {
+        // Add this node as a child of a visited neighbor
+        const existingChildren = treeChildren.get(visitedNeighbor) || [];
+        treeChildren.set(visitedNeighbor, [...existingChildren, nodeId]);
+
+        // Set depth one level deeper than the parent
+        const parentDepth = depthMap.get(visitedNeighbor) || 0;
+        depthMap.set(nodeId, parentDepth + 1);
+        visited.add(nodeId);
+
+        // Also check if this newly added node has children via directed edges
+        const newNodeQueue: Array<{ id: string; depth: number }> = [{ id: nodeId, depth: parentDepth + 1 }];
+
+        while (newNodeQueue.length > 0) {
+          const { id, depth } = newNodeQueue.shift()!;
+          const children = childrenMap.get(id) || [];
+          const validChildren: string[] = [];
+
+          children.forEach(childId => {
+            if (!visited.has(childId) && connectedNodes.has(childId)) {
+              validChildren.push(childId);
+              visited.add(childId);
+              depthMap.set(childId, depth + 1);
+              newNodeQueue.push({ id: childId, depth: depth + 1 });
+            }
+          });
+
+          if (validChildren.length > 0) {
+            treeChildren.set(id, [...(treeChildren.get(id) || []), ...validChildren]);
+          }
+        }
       }
     });
   }
 
-  // Handle orphaned nodes (not reachable from root)
-  const orphanedNodes: string[] = [];
-  nodes.forEach(node => {
-    if (!visited.has(node.id)) {
-      orphanedNodes.push(node.id);
-      depthMap.set(node.id, 0); // Treat as root level
-    }
-  });
-
-  // Create enriched nodes with children and depth properties
-  const enrichedNodes = nodes.map(node => ({
-    ...node,
-    children: childrenMap.get(node.id) || [],
-    depth: depthMap.get(node.id) ?? 0,
-  }));
-
-  // If we have orphaned nodes, create a virtual super-root
+  // Create a virtual super-root if there are orphaned nodes (disconnected components)
   if (orphanedNodes.length > 0) {
-    console.log("[Tree] Found", orphanedNodes.length, "orphaned nodes, creating virtual super-root");
-    
-    // Add virtual root node
+    console.log("[Tree] Found", orphanedNodes.length, "orphaned nodes. Creating virtual super-root.");
+
+    // Add virtual root
     const superRoot = {
-      id: "__super_root__",
-      data: { isVirtualRoot: true },
+      id: "__tree_super_root__",
+      label: "🌳 Graph Root",
+      data: {
+        isVirtualRoot: true,
+        kind: -1,
+      },
       children: [rootId, ...orphanedNodes],
       depth: 0,
     };
 
-    // Update depths: increment all by 1
-    enrichedNodes.forEach(node => {
-      node.depth = (node.depth ?? 0) + 1;
+    // Add main root and orphans as children of super-root
+    treeChildren.set("__tree_super_root__", [rootId, ...orphanedNodes]);
+
+    // Process orphaned nodes with BFS to find their subtrees
+    orphanedNodes.forEach(orphanId => {
+      const orphanQueue: Array<{ id: string; depth: number }> = [{ id: orphanId, depth: 1 }];
+
+      while (orphanQueue.length > 0) {
+        const { id, depth } = orphanQueue.shift()!;
+
+        if (visited.has(id)) continue;
+        visited.add(id);
+        depthMap.set(id, depth);
+
+        const children = childrenMap.get(id) || [];
+        const validChildren: string[] = [];
+
+        children.forEach(childId => {
+          if (!visited.has(childId)) {
+            validChildren.push(childId);
+            orphanQueue.push({ id: childId, depth: depth + 1 });
+          }
+        });
+
+        if (validChildren.length > 0) {
+          treeChildren.set(id, validChildren);
+        }
+      }
     });
 
-    // Add super root to nodes
-    enrichedNodes.unshift(superRoot);
+    // Increment all depths by 1 to make room for super-root
+    const newDepthMap = new Map<string, number>();
+    depthMap.forEach((depth, nodeId) => {
+      newDepthMap.set(nodeId, depth + 1);
+    });
+    newDepthMap.set("__tree_super_root__", 0);
 
-    // Add edges from super root to main root and orphans
-    const superEdges = [
-      { source: "__super_root__", target: rootId },
-      ...orphanedNodes.map(id => ({ source: "__super_root__", target: id }))
+    // Create enriched nodes including super-root
+    const enrichedNodes = [
+      superRoot,
+      ...nodes.map(node => ({
+        ...node,
+        children: treeChildren.get(node.id) || [],
+        depth: newDepthMap.get(node.id) ?? 0,
+      }))
     ];
+
+    // Build tree edges based on treeChildren relationships
+    // Start with super-root edges
+    const treeEdges: any[] = [
+      { source: "__tree_super_root__", target: rootId, data: { type: "tree-structure" } },
+      ...orphanedNodes.map(id => ({
+        source: "__tree_super_root__",
+        target: id,
+        data: { type: "tree-structure" }
+      }))
+    ];
+
+    // Track added edges to prevent duplicates and cycles
+    const addedEdges = new Set<string>();
+    treeEdges.forEach(e => addedEdges.add(`${e.source}->${e.target}`));
+
+    // Add edges for all other parent-child relationships
+    treeChildren.forEach((children, parent) => {
+      // Skip super-root edges (already added above)
+      if (parent === "__tree_super_root__") return;
+
+      children.forEach(child => {
+        const edgeKey = `${parent}->${child}`;
+        const reverseEdgeKey = `${child}->${parent}`;
+
+        // Skip if we've already added this edge or its reverse (prevents cycles)
+        if (addedEdges.has(edgeKey) || addedEdges.has(reverseEdgeKey)) {
+          console.warn("[Tree] Skipping duplicate/reverse edge:", edgeKey);
+          return;
+        }
+
+        // Validate: child should have greater depth than parent (no cycles)
+        const parentDepth = newDepthMap.get(parent) ?? -1;
+        const childDepth = newDepthMap.get(child) ?? -1;
+
+        if (childDepth <= parentDepth && child !== "__tree_super_root__" && parent !== "__tree_super_root__") {
+          console.warn("[Tree] Skipping edge with invalid depth:", parent, "→", child, "depths:", parentDepth, "→", childDepth);
+          return;
+        }
+
+        addedEdges.add(edgeKey);
+
+        // Look for an edge in either direction between parent and child
+        const existingEdge = edges.find(e =>
+          (e.source === parent && e.target === child) ||
+          (e.source === child && e.target === parent)
+        );
+
+        if (existingEdge) {
+          // Use existing edge but ensure correct direction (parent → child)
+          treeEdges.push({
+            ...existingEdge,
+            source: parent,
+            target: child,
+          });
+        } else {
+          // Create synthetic edge if none exists
+          treeEdges.push({
+            source: parent,
+            target: child,
+            data: { type: "tree-structure" }
+          });
+        }
+      });
+    });
+
+    console.log("[Tree] Created", treeEdges.length, "tree edges for", enrichedNodes.length, "nodes (with super-root)");
 
     return {
       nodes: enrichedNodes,
-      edges: [...edges, ...superEdges],
+      edges: treeEdges,
     };
   }
 
+  // No orphaned nodes - return simple tree
+  const enrichedNodes = nodes.map(node => ({
+    ...node,
+    children: treeChildren.get(node.id) || [],
+    depth: depthMap.get(node.id) ?? 0,
+  }));
+
+  // Build tree edges based on treeChildren relationships
+  // For each parent-child relationship, find or create an edge
+  // Add cycle detection to prevent infinite recursion
+  const treeEdges: any[] = [];
+  const addedEdges = new Set<string>(); // Track edges to prevent duplicates
+
+  treeChildren.forEach((children, parent) => {
+    children.forEach(child => {
+      const edgeKey = `${parent}->${child}`;
+      const reverseEdgeKey = `${child}->${parent}`;
+
+      // Skip if we've already added this edge or its reverse (prevents cycles)
+      if (addedEdges.has(edgeKey) || addedEdges.has(reverseEdgeKey)) {
+        console.warn("[Tree] Skipping duplicate/reverse edge:", edgeKey);
+        return;
+      }
+
+      // Validate: child should have greater depth than parent (no cycles)
+      const parentDepth = depthMap.get(parent) ?? -1;
+      const childDepth = depthMap.get(child) ?? -1;
+
+      if (childDepth <= parentDepth && child !== "__tree_super_root__" && parent !== "__tree_super_root__") {
+        console.warn("[Tree] Skipping edge with invalid depth:", parent, "→", child, "depths:", parentDepth, "→", childDepth);
+        return;
+      }
+
+      addedEdges.add(edgeKey);
+
+      // Look for an edge in either direction between parent and child
+      const existingEdge = edges.find(e =>
+        (e.source === parent && e.target === child) ||
+        (e.source === child && e.target === parent)
+      );
+
+      if (existingEdge) {
+        // Use existing edge but ensure correct direction (parent → child)
+        treeEdges.push({
+          ...existingEdge,
+          source: parent,
+          target: child,
+        });
+      } else {
+        // Create synthetic edge if none exists (shouldn't happen in connected graph)
+        treeEdges.push({
+          source: parent,
+          target: child,
+          data: { type: "tree-structure" }
+        });
+      }
+    });
+  });
+
+  console.log("[Tree] Created", treeEdges.length, "tree edges for", enrichedNodes.length, "nodes");
+
   return {
     nodes: enrichedNodes,
-    edges: edges,
+    edges: treeEdges,
   };
 }
 
@@ -2447,7 +2738,8 @@ function getLayoutConfig(type: string) {
     case "mds":
       return {
         type: "mds",
-        linkDistance: 100,
+        linkDistance: settings.mds.linkDistance,
+        center: [settings.mds.center.x, settings.mds.center.y],
       };
 
     case "fishbone":
@@ -3626,9 +3918,9 @@ function performSearch() {
   const queryText = searchQuery.value.trim();
   const parsedFilter = parseNostrQuery(queryText);
   const searchText = parsedFilter.search?.toLowerCase() || "";
-  
+
   console.log("[Local Search] Parsed filter:", parsedFilter);
-  
+
   const matchingNodeIds = new Set<string>();
 
   // Search through all nodes
@@ -3655,7 +3947,7 @@ function performSearch() {
         }
       } else if (node.data?.type === "tag") {
         const tag = node.data?.tag || "";
-        
+
         // Check tag filter
         if (parsedFilter['#t'] && parsedFilter['#t'].length > 0) {
           if (parsedFilter['#t'].some((t: string) => tag.toLowerCase().includes(t.toLowerCase()))) {
@@ -3663,7 +3955,7 @@ function performSearch() {
             return;
           }
         }
-        
+
         // Check search text
         if (searchText && tag.toLowerCase().includes(searchText)) {
           matchingNodeIds.add(node.id);
@@ -3894,23 +4186,23 @@ async function searchNostrRelays() {
 
   try {
     const query = searchQuery.value.trim();
-    
+
     // Parse the query using nostr-dsl
     const parsedFilter = parseNostrQuery(query);
     console.log("[Search] Parsed filter:", parsedFilter);
 
     // Extract search text for client-side filtering
     const searchText = parsedFilter.search?.toLowerCase() || "";
-    
+
     // Build Nostr filter for relay query
     // Start with parsed filter but ensure we have default kinds if none specified
     const relayFilter: any = { ...parsedFilter };
     delete relayFilter.search; // Remove search field (not a standard NIP-01 filter)
-    
+
     if (!relayFilter.kinds || relayFilter.kinds.length === 0) {
       relayFilter.kinds = [1, 30023]; // Default: notes and articles
     }
-    
+
     if (!relayFilter.limit) {
       relayFilter.limit = 100; // Default limit
     }
@@ -4139,7 +4431,7 @@ onMounted(() => {
   // Single click to mark node as active (for tree root selection)
   graph.on("node:click", (evt: any) => {
     const nodeId = evt.target?.id || evt.item?.id;
-    if (!nodeId || nodeId === "__super_root__") return; // Ignore virtual root
+    if (!nodeId) return;
 
     // Handle shift+click for multi-selection (manual implementation since HTML nodes don't work with click-select behavior)
     if (evt.shiftKey) {
@@ -4176,7 +4468,7 @@ onMounted(() => {
 
     // Normal click: clear multi-selection and select this node only
     console.log("[Selection] Single click on:", nodeId);
-    
+
     // Clear all previous selections
     if (selectedNodeIds.value.size > 0) {
       selectedNodeIds.value.forEach((id: string) => {
@@ -4366,6 +4658,12 @@ onMounted(() => {
     e.preventDefault();
 
     const target = e.target as HTMLElement;
+
+    // Don't show context menu for virtual root node
+    const virtualRoot = target.closest('[data-item-id="__tree_super_root__"]');
+    if (virtualRoot) {
+      return;
+    }
 
     // Check if we have multiple nodes selected
     if (selectedNodeIds.value.size > 1) {
@@ -4908,7 +5206,7 @@ onMounted(() => {
       // Find which card (if any) the mouse is currently over
       const target = e.target as HTMLElement;
       const expandedCard = target.closest(".event-node.expanded");
-      
+
       if (!expandedCard) {
         // Mouse is not over an expanded card, allow normal zoom behavior
         return;
@@ -5091,10 +5389,17 @@ watch(layoutMode, (newLayout, oldLayout) => {
   if (newIsTree && !oldIsTree) {
     console.log("[Layout] Switching to tree layout, converting data");
 
-    // Use currently rendered nodes, not all nodes from store
-    const currentData = originalGraphData.value || graph.getData();
-    const nodes = currentData.nodes || [];
-    const edges = currentData.edges || [];
+    // Use current data from graphStore to ensure we have all nodes
+    const nodes = graphStore.nodes;
+    const edges = graphStore.edges;
+
+    // Save a snapshot for potential restoration (though we now use graphStore directly)
+    if (!originalGraphData.value) {
+      originalGraphData.value = {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        edges: JSON.parse(JSON.stringify(edges)),
+      };
+    }
 
     console.log(
       "[Layout] Converting",
@@ -5131,31 +5436,40 @@ watch(layoutMode, (newLayout, oldLayout) => {
   }
   // Switching from tree to graph layout
   else if (!newIsTree && oldIsTree) {
-    console.log("[Layout] Switching to graph layout, restoring original data");
+    console.log("[Layout] Switching to graph layout, restoring all data");
 
-    if (originalGraphData.value) {
-      const graphDataObj = {
-        nodes: originalGraphData.value.nodes,
-        edges: originalGraphData.value.edges,
-      };
+    // Use current data from graphStore (which includes all nodes added during tree layout)
+    // Don't use originalGraphData as it's a stale snapshot from before tree layout
+    const currentGraphData = {
+      nodes: graphStore.nodes,
+      edges: graphStore.edges,
+    };
 
-      graph.setData(graphDataObj);
-      graph.setLayout(getLayoutConfig(newLayout));
-      graph.layout();
-      graph.render();
-    }
+    console.log("[Layout] Restoring", currentGraphData.nodes.length, "nodes and", currentGraphData.edges.length, "edges");
+
+    graph.setData(currentGraphData);
+    graph.setLayout(getLayoutConfig(newLayout));
+    graph.layout();
+    graph.render();
+
+    // Clear the cached originalGraphData since we're back to normal graph mode
+    originalGraphData.value = null;
   }
   // Staying within same data type (graph to graph, or tree to tree)
   else {
     if (newIsTree && treeRootId.value) {
-      // Tree to tree - rebuild tree with same root
+      // Tree to tree - rebuild tree with same root using current graph data
       console.log(
         "[Layout] Tree to tree switch, rebuilding with root:",
         treeRootId.value
       );
 
-      const nodes = originalGraphData.value?.nodes || [];
-      const edges = originalGraphData.value?.edges || [];
+      // Use current data from graphStore to include any nodes added during tree layout
+      const nodes = graphStore.nodes;
+      const edges = graphStore.edges;
+
+      console.log("[Layout] Using current graph data:", nodes.length, "nodes,", edges.length, "edges");
+
       const treeData = prepareTreeData(nodes, edges, treeRootId.value);
 
       graph.setData(treeData);
@@ -5332,13 +5646,13 @@ function clearSelection() {
   });
 
   selectedNodeIds.value.clear();
-  
+
   // Remove CSS classes
   const allElements = graphRef.value?.querySelectorAll("[data-item-id]");
   allElements?.forEach((el) => {
     el.classList.remove("g6-selected");
   });
-  
+
   console.log("[Selection] Cleared");
 }
 
@@ -6098,6 +6412,22 @@ defineExpose({
 
 :deep(.node-circle.tree-root-node:hover) {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Virtual tree root node (for disconnected graphs) */
+:deep(.node-circle.virtual-root-node) {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 4px solid #667eea !important;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2);
+  pointer-events: none; /* Not clickable */
+  opacity: 0.9;
+}
+
+:deep(.node-circle.virtual-root-node .node-emoji) {
+  font-size: 40px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
 :deep(.node-circle.pubkey-node) {
