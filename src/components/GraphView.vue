@@ -1670,6 +1670,53 @@ const selectedNodeIds = ref<Set<string>>(new Set()); // Multiple selected nodes
 // Animation state
 const isAnimating = ref(true);
 
+// Timebar state
+const timebarTimeRange = ref<[number, number] | null>(null);
+
+// Computed: Generate time distribution data for timebar
+const timebarData = computed(() => {
+  const nodes = graphStore.nodes;
+  if (!nodes || nodes.length === 0) {
+    // Return dummy data when no nodes exist (timebar needs at least one data point)
+    const now = Date.now();
+    return [{ time: now - 86400000, value: 1 }, { time: now, value: 1 }];
+  }
+
+  // Get all timestamps and group by day
+  const dayMap = new Map<string, number>();
+  nodes.forEach((node: any) => {
+    const event = node.data?.event;
+    if (!event?.created_at) return;
+
+    const timestamp = event.created_at * 1000; // Convert to ms
+    const dayKey = new Date(timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
+    dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
+  });
+
+  // Convert to timebar format
+  const result = Array.from(dayMap.entries())
+    .map(([day, count]) => ({
+      time: new Date(day).getTime(),
+      value: count,
+    }))
+    .sort((a, b) => a.time - b.time);
+
+  // Ensure we have at least 2 data points
+  if (result.length < 2) {
+    const now = Date.now();
+    return [{ time: now - 86400000, value: 1 }, { time: now, value: 1 }];
+  }
+
+  return result;
+});
+
+// Computed: Default time range (last 90 days)
+const defaultTimeRange = computed((): [number, number] => {
+  const now = Date.now();
+  const ninetyDaysAgo = now - (90 * 24 * 60 * 60 * 1000);
+  return [ninetyDaysAgo, now];
+});
+
 // Edge styling configuration based on relationship hierarchy
 const edgeStyles = {
   "authored-by": {
@@ -3126,7 +3173,7 @@ function showStatContextMenu(x: number, y: number, eventId: string, statType: St
 }
 
 // Helper: Create or get author node
-function createAuthorNode(pubkey: string, profile?: any) {
+function createAuthorNode(pubkey: string, profile?: any, createdAt?: number) {
   // Check if author node already exists
   const existingNode = graphStore.nodes.find((n: any) => n.id === pubkey);
   if (existingNode) {
@@ -3136,6 +3183,10 @@ function createAuthorNode(pubkey: string, profile?: any) {
       existingNode.label = `👤 ${
         profile.name || profile.display_name || pubkey.slice(0, 8)
       }`;
+    }
+    // Update created_at if provided and not already set
+    if (createdAt && !existingNode.data.created_at) {
+      existingNode.data.created_at = createdAt;
     }
     return pubkey;
   }
@@ -3149,6 +3200,7 @@ function createAuthorNode(pubkey: string, profile?: any) {
       type: "pubkey",
       pubkey: pubkey,
       profile: profile || null,
+      created_at: createdAt || null, // Store kind 0 event timestamp for timebar
     },
   };
 
@@ -3394,8 +3446,8 @@ async function expandAuthorProfile(pubkey: string) {
         console.warn("Failed to parse profile:", e);
       }
 
-      // Create/update author node with profile data
-      createAuthorNode(pubkey, profile);
+      // Create/update author node with profile data and timestamp
+      createAuthorNode(pubkey, profile, events[0].created_at);
       const connectedCount = connectEventsToAuthor(pubkey);
       const mentionCount = connectMentionsToAuthor(pubkey);
       showMessage(
@@ -4504,12 +4556,65 @@ onMounted(() => {
 
     layout: getLayoutConfig(layoutMode.value),
 
+    // Reserve space at the bottom for the timebar
+    padding: [10, 10, 120, 10],
+
     // Speed up animations globally
     animation: {
       duration: 300, // Faster transitions (default is 500ms)
     },
 
     plugins: [
+      // Timebar plugin - always visible
+      {
+        type: "timebar",
+        key: "timebar",
+        className: "g6-timebar",
+        zIndex: 10,
+        data: timebarData.value,
+        width: graphRef.value.offsetWidth - 20,
+        height: 100,
+        position: "bottom",
+        timebarType: "chart",
+        elementTypes: ["node"],
+        mode: "visibility", // hides/shows nodes without removing from data → setData+updatePlugin reliably restores filter state
+        values: timebarTimeRange.value || defaultTimeRange.value,
+        getTime: (datum: any) => {
+          // Author/pubkey nodes are timeless — always keep them visible by
+          // returning the midpoint of the current active window so they are
+          // never outside the selected range.
+          if (datum.data?.type === 'pubkey') {
+            const range = timebarTimeRange.value || defaultTimeRange.value;
+            return (range[0] + range[1]) / 2;
+          }
+          // Regular event nodes
+          const t = datum.data?.event?.created_at || datum.data?.created_at;
+          if (t) return t * 1000;
+          return null;
+        },
+        labelFormatter: (time: number) => {
+          const date = new Date(time);
+          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        },
+        onChange: (values: [number, number]) => {
+          timebarTimeRange.value = values;
+          // onChange fires after the timebar has already applied node visibility,
+          // so we can sync edge visibility synchronously here.
+          syncEdgeVisibility();
+          if (!graph) return;
+          graph.layout();
+          setTimeout(() => { graph?.fitView(); }, 350);
+        },
+        onPlay: () => {},
+        onPause: () => {
+          graph?.layout();
+          setTimeout(() => { graph?.fitView(); }, 350);
+        },
+        onReset: () => {
+          graph?.layout();
+          setTimeout(() => { graph?.fitView(); }, 350);
+        },
+      },
       {
         type: "tooltip",
         enable: (event: any) => event.targetType === "edge",
@@ -5566,6 +5671,67 @@ onUnmounted(() => {
   window.removeEventListener("keydown", handleEscapeKey);
 });
 
+// Cascades node visibility to their edges.
+// G6's timebar mode:"visibility" only hides nodes; edges must be synced manually.
+function syncEdgeVisibility() {
+  if (!graph) return;
+  const range = timebarTimeRange.value;
+  const allData = graph.getData();
+  const nodes: any[] = (allData.nodes ?? []) as any[];
+  const edges: any[] = (allData.edges ?? []) as any[];
+
+  // Mirror the timebar's own getTime logic to know which nodes are visible
+  const visibleNodeIds = new Set<string>();
+  if (!range) {
+    nodes.forEach((n: any) => visibleNodeIds.add(n.id));
+  } else {
+    const [start, end] = range;
+    nodes.forEach((node: any) => {
+      if (node.data?.type === 'pubkey') { visibleNodeIds.add(node.id); return; }
+      const t = node.data?.event?.created_at || node.data?.created_at;
+      const ms = t ? t * 1000 : null;
+      if (ms !== null && ms >= start && ms <= end) visibleNodeIds.add(node.id);
+    });
+  }
+
+  const toShow: string[] = [];
+  const toHide: string[] = [];
+  edges.forEach((edge: any) => {
+    if (!edge.id) return;
+    if (visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) toShow.push(edge.id);
+    else toHide.push(edge.id);
+  });
+
+  if (toShow.length > 0) graph.showElement(toShow);
+  if (toHide.length > 0) graph.hideElement(toHide);
+}
+
+// Helper: re-apply the active time filter after setData() replaces graph data.
+// With mode:"visibility" updatePlugin correctly re-hides out-of-range nodes after
+// any setData() call because nodes stay in the data graph (just hidden/shown)
+// and the timebar re-evaluates all of them when values are set.
+function refreshTimebar() {
+  if (!graph) return;
+  graph.updatePlugin({
+    key: 'timebar',
+    data: timebarData.value,
+    values: timebarTimeRange.value || defaultTimeRange.value,
+  } as any);
+  // updatePlugin triggers async re-evaluation; sync edges after the tick
+  setTimeout(() => syncEdgeVisibility(), 0);
+}
+
+// Watch for timebarData changes and update the timebar plugin dynamically
+watch(timebarData, (newData) => {
+  if (!graph) return;
+
+  console.log('[Timebar] Updating data with', newData.length, 'points');
+  graph.updatePlugin({
+    key: 'timebar',
+    data: newData,
+  } as any);
+}, { deep: true });
+
 // Watch for layout changes
 watch(layoutMode, (newLayout, oldLayout) => {
   if (!graph || !graphData.value) return;
@@ -5645,6 +5811,7 @@ watch(layoutMode, (newLayout, oldLayout) => {
       graph.setLayout(getLayoutConfig(newLayout));
       graph.layout();
       graph.render();
+      refreshTimebar();
 
       // Fit view after tree layout
       setTimeout(() => {
@@ -5669,6 +5836,7 @@ watch(layoutMode, (newLayout, oldLayout) => {
     graph.setLayout(getLayoutConfig(newLayout));
     graph.layout();
     graph.render();
+    refreshTimebar();
 
     // Clear the cached originalGraphData since we're back to normal graph mode
     originalGraphData.value = null;
@@ -5695,6 +5863,7 @@ watch(layoutMode, (newLayout, oldLayout) => {
 
     graph.setLayout(getLayoutConfig(newLayout));
     graph.layout();
+    refreshTimebar();
   }
 
   // Start animation on layout change
@@ -5709,6 +5878,7 @@ watch(
     if (graph) {
       graph.setData(newData);
       graph.render();
+      refreshTimebar();
       // Don't auto-start animation on data updates
       // User can manually start if needed
 
@@ -6575,6 +6745,7 @@ defineExpose({
 }
 
 .graph-canvas {
+  position: relative; /* Establishes positioning context for G6 plugins */
   width: 100%;
   height: 100%;
 }
