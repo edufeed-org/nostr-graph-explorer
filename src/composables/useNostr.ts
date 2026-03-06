@@ -85,12 +85,9 @@ export function useNostr() {
       console.error('Failed to load relays from database:', error)
       // Fallback to default relays if DB fails
       relays.value = [
-        'wss://nostr.mutinywallet.com',
-        'wss://relay.damus.io',
-        'wss://nos.lol',
-        'wss://relay.nostr.band',
-        'wss://relay.nostr.net',
-        'wss://relay.snort.social',
+        'wss://relay-rpi.edufeed.org',
+        'wss://amb-relay.edufeed.org',
+        'wss://relay.edufeed.org',
       ]
     }
   }
