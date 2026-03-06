@@ -168,12 +168,9 @@ export async function initializeDefaultRelays(): Promise<void> {
   // Only add defaults if no relays exist
   if (existing.length === 0) {
     const defaultRelays = [
-      'wss://nostr.mutinywallet.com',
-      'wss://relay.damus.io',
-      'wss://nos.lol',
-      'wss://relay.nostr.band',
-      'wss://relay.nostr.net',
-      'wss://relay.snort.social',
+      'wss://relay-rpi.edufeed.org',
+      'wss://amb-relay.edufeed.org',
+      'wss://relay.edufeed.org',
     ]
 
     for (const url of defaultRelays) {
