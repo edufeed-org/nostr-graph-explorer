@@ -92,6 +92,15 @@ const KIND_ALIASES: Record<string, number[]> = {
   moderation: [1984],
 
   // ─────────────────────────────
+  // KANBAN (Kanban-NIP)
+  // ─────────────────────────────
+  kanban: [30301, 30302],
+  board: [30301],
+  card: [30302],
+  tracker: [30302], // tracker cards are also kind 30302
+  snapshot: [30303],
+
+  // ─────────────────────────────
   // ADDRESSABLE GENERIC
   // ─────────────────────────────
   document: [30000], // generic addressable
@@ -294,8 +303,6 @@ export function parseNostrQuery(q: string): NostrFilter {
   if (searchParts.length) {
     filter.search = searchParts.join(' ').trim()
   }
-
-  console.log('Parsed filter:', filter)
 
   return filter
 }

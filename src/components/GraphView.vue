@@ -1761,6 +1761,13 @@ const edgeStyles = {
     label: "reacts to",
     opacity: 0.5,
   },
+  "board-card": {
+    stroke: "#0ea5e9", // Sky blue - kanban board-card link
+    lineWidth: 2.5,
+    lineDash: [0], // Solid
+    label: "has card",
+    opacity: 0.85,
+  },
   default: {
     stroke: "#999", // Gray - unknown
     lineWidth: 1.5,
@@ -1789,6 +1796,8 @@ function getEdgeStyle(edge: any) {
     category = "repost";
   } else if (type === "reaction") {
     category = "reaction";
+  } else if (type === "board-card") {
+    category = "board-card";
   }
 
   return edgeStyles[category];
@@ -1812,6 +1821,9 @@ function getKindColor(kind: number): string {
     7: "#ec4899", // Reaction - pink
     9735: "#f59e0b", // Zap - amber/gold
     30023: "#6366f1", // Article - indigo
+    30301: "#0ea5e9", // Kanban Board - sky blue
+    30302: "#14b8a6", // Kanban Card - teal
+    30303: "#a78bfa", // Snapshot - violet
   };
   return colors[kind] || "#6b7280"; // gray default
 }
@@ -2041,7 +2053,7 @@ function renderEventNode(d: any): string {
     `;
   }
 
-  // Expanded: render detailed card with all metadata
+  // Helper for HTML-safe strings (used in expanded views below)
   const safe = (s: string) =>
     String(s || "")
       .replace(/&/g, "&amp;")
@@ -2049,6 +2061,87 @@ function renderEventNode(d: any): string {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+
+  // Kanban Board (kind 30301) - expanded
+  if (kind === 30301) {
+    const nodeId = safe(d.id || "");
+    const title = safe(event.tags?.find((t: string[]) => t[0] === "title")?.[1] || "Untitled Board");
+    const description = safe(event.tags?.find((t: string[]) => t[0] === "description")?.[1] || event.content || "");
+    const columns = event.tags?.filter((t: string[]) => t[0] === "col") || [];
+    const maintainers = event.tags?.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1]) || [];
+    const timestamp = getRelativeTime(event.created_at);
+    const absoluteTime = new Date(event.created_at * 1000).toLocaleString();
+    const isLoading = expandingNodes.value.has(nodeId);
+
+    const columnsHtml = columns.length > 0
+      ? `<div class="kanban-columns">
+          ${columns.map((col: string[]) => {
+            const colName = safe(col[2] || col[1] || "?");
+            const colColor = col[3] || "#64748b";
+            return `<span class="kanban-col-badge" style="background: ${colColor}; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin: 2px;">${colName}</span>`;
+          }).join("")}
+        </div>`
+      : "";
+
+    return `
+      <div class="event-node expanded kanban-board${isLoading ? " node-loading" : ""}" data-item-id="${nodeId}" data-kind="30301">
+        <div class="event-titlebar" data-role="titlebar" style="background: ${kindColor};">
+          <div class="event-left">
+            <span class="event-badge">📋 Board</span>
+            <span class="event-title" title="${absoluteTime}">${timestamp}</span>
+          </div>
+          <div class="event-close" data-role="close">×</div>
+        </div>
+        <div class="event-body">
+          <div class="kanban-board-title" style="font-size: 15px; font-weight: 600; margin-bottom: 6px;">${title}</div>
+          ${description ? `<div class="event-content" style="font-size: 12px; color: #94a3b8; margin-bottom: 6px;">${description}</div>` : ""}
+          ${columnsHtml}
+          <div class="event-meta" style="font-size: 11px; color: #64748b; margin-top: 6px;">
+            ${maintainers.length > 0 ? `<span>👥 ${maintainers.length} maintainer${maintainers.length > 1 ? "s" : ""}</span>` : ""}
+          </div>
+        </div>
+        <div class="event-footer">
+          <div class="event-stats">
+            <span class="stat-item" data-role="stat-replies" data-event-id="${nodeId}" title="Fetch cards">🗂️ Cards</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Kanban Card (kind 30302) - expanded
+  if (kind === 30302) {
+    const nodeId = safe(d.id || "");
+    const title = safe(event.tags?.find((t: string[]) => t[0] === "title")?.[1] || "Untitled Card");
+    const description = event.tags?.find((t: string[]) => t[0] === "description")?.[1] || event.content || "";
+    const colLabel = safe(event.tags?.find((t: string[]) => t[0] === "col_label")?.[1] || "");
+    const status = safe(event.tags?.find((t: string[]) => t[0] === "s")?.[1] || "");
+    const assignees = event.tags?.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1]) || [];
+    const attachments = event.tags?.filter((t: string[]) => t[0] === "u").map((t: string[]) => t[1]) || [];
+    const isTracker = event.tags?.some((t: string[]) => t[0] === "k");
+    const timestamp = getRelativeTime(event.created_at);
+    const absoluteTime = new Date(event.created_at * 1000).toLocaleString();
+    const bodyContent = md.render(description);
+
+    return `
+      <div class="event-node expanded kanban-card" data-item-id="${nodeId}" data-kind="30302">
+        <div class="event-titlebar" data-role="titlebar" style="background: ${kindColor};">
+          <div class="event-left">
+            <span class="event-badge">${isTracker ? "🔗 Tracker" : "🗂️ Card"}</span>
+            ${colLabel ? `<span class="kanban-col-badge" style="background: rgba(255,255,255,0.2); color: #fff; padding: 1px 6px; border-radius: 8px; font-size: 10px;">${colLabel}</span>` : ""}
+            <span class="event-title" title="${absoluteTime}">${timestamp}</span>
+          </div>
+          <div class="event-close" data-role="close">×</div>
+        </div>
+        <div class="event-body">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">${safe(title)}</div>
+          ${bodyContent ? `<div class="event-content markdown-content">${bodyContent}</div>` : ""}
+          ${assignees.length > 0 ? `<div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">👤 ${assignees.map(a => safe(a.slice(0, 8)) + "…").join(", ")}</div>` : ""}
+          ${attachments.length > 0 ? `<div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">📎 ${attachments.length} attachment${attachments.length > 1 ? "s" : ""}</div>` : ""}
+        </div>
+      </div>
+    `;
+  }
 
   const nodeId = safe(d.id || "");
   const timestamp = getRelativeTime(event.created_at);
@@ -2229,6 +2322,9 @@ function getEventTypeLabel(kind: number): string {
     7: "❤️ Reaction",
     9735: "⚡ Zap",
     30023: "📄 Article",
+    30301: "📋 Board",
+    30302: "🗂️ Card",
+    30303: "📸 Snapshot",
   };
   return labels[kind] || `Kind ${kind}`;
 }
@@ -3319,6 +3415,91 @@ function connectEventsToTag(tag: string, tagNodeId: string) {
   // Add all edges
   edges.forEach((edge) => graphStore.addEdge(edge));
   return edges.length;
+}
+
+// Helper: Connect kanban cards to their board node via 'a' tag
+function connectCardsToBoard(boardEventId: string, boardAddress: string) {
+  const edges: any[] = [];
+
+  graphStore.nodes.forEach((node: any) => {
+    const event = node.data?.event;
+    if (!event || event.kind !== 30302) return;
+
+    // Check if this card references the board via 'a' tag
+    const aTag = event.tags?.find((t: string[]) => t[0] === "a" && t[1] === boardAddress);
+    if (aTag) {
+      const edgeId = `${boardEventId}->${event.id}`;
+      // Avoid duplicate edges
+      if (!graphStore.edges.some((e: any) => e.source === boardEventId && e.target === event.id && e.data?.type === "board-card")) {
+        edges.push({
+          source: boardEventId,
+          target: event.id,
+          data: {
+            type: "board-card",
+            aTag: boardAddress,
+          },
+        });
+      }
+    }
+  });
+
+  edges.forEach((edge) => graphStore.addEdge(edge));
+  return edges.length;
+}
+
+// Expand kanban cards for a board event
+async function expandKanbanCards(boardEventId: string, relayHints?: string[]) {
+  showMessage("Fetching kanban cards...", "info");
+
+  try {
+    // Find the board event to get the 'a' address
+    const boardNode = graphStore.nodes.find((n: any) => n.id === boardEventId);
+    const boardEvent = boardNode?.data?.event;
+    if (!boardEvent || boardEvent.kind !== 30301) {
+      showMessage("Board event not found", "warning");
+      return;
+    }
+
+    const dTag = boardEvent.tags?.find((t: string[]) => t[0] === "d")?.[1];
+    if (!dTag) {
+      showMessage("Board has no d-tag identifier", "warning");
+      return;
+    }
+
+    const boardAddress = `30301:${boardEvent.pubkey}:${dTag}`;
+    console.log("[Kanban] Fetching cards for board:", boardAddress);
+
+    // Fetch cards that reference this board
+    const cardFilter = {
+      kinds: [30302],
+      "#a": [boardAddress],
+      limit: 200,
+    };
+
+    let cardEvents;
+    if (relayHints && relayHints.length > 0) {
+      const pool = getPool();
+      const combinedRelays = [...new Set([...nostrRelays.value, ...relayHints])];
+      cardEvents = await pool.querySync(combinedRelays, cardFilter);
+      if (cardEvents.length > 0) {
+        const { storeEvents } = await import('../db');
+        await storeEvents(cardEvents);
+      }
+    } else {
+      cardEvents = await fetchInitialEvents([cardFilter]);
+    }
+
+    if (cardEvents.length > 0) {
+      graphStore.updateWithEvents(cardEvents);
+      const connectedCount = connectCardsToBoard(boardEventId, boardAddress);
+      showMessage(`Added ${cardEvents.length} cards (${connectedCount} connected)`, "success");
+    } else {
+      showMessage("No cards found for this board", "info");
+    }
+  } catch (error) {
+    console.error("Failed to fetch kanban cards:", error);
+    showMessage("Failed to fetch kanban cards", "error");
+  }
 }
 
 // Expansion functions
@@ -4482,6 +4663,35 @@ async function searchNostrRelays() {
       graphStore.updateWithEvents(matchingEvents);
       showMessage(`Added ${matchingEvents.length} events from Nostr relays`, "success");
 
+      // Auto-fetch kanban cards for any board events (kind 30301)
+      const boardEvents = matchingEvents.filter((e) => e.kind === 30301);
+      if (boardEvents.length > 0) {
+        for (const board of boardEvents) {
+          await expandKanbanCards(board.id, naddrRelays.length > 0 ? naddrRelays : undefined);
+        }
+      }
+
+      // Also connect any loaded cards (30302) to their boards
+      const cardEvents = matchingEvents.filter((e) => e.kind === 30302);
+      if (cardEvents.length > 0) {
+        // Find board addresses from card 'a' tags and connect
+        for (const card of cardEvents) {
+          const aTag = card.tags?.find((t: string[]) => t[0] === "a" && t[1]?.startsWith("30301:"));
+          if (aTag) {
+            // Find the board node by matching the 'a' address
+            const boardNode = graphStore.nodes.find((n: any) => {
+              const evt = n.data?.event;
+              if (!evt || evt.kind !== 30301) return false;
+              const dTag = evt.tags?.find((t: string[]) => t[0] === "d")?.[1];
+              return dTag && aTag[1] === `30301:${evt.pubkey}:${dTag}`;
+            });
+            if (boardNode) {
+              connectCardsToBoard(boardNode.id, aTag[1]);
+            }
+          }
+        }
+      }
+
       // Automatically perform local search to highlight new results
       setTimeout(() => performSearch(), 500);
     } else {
@@ -5207,6 +5417,15 @@ onMounted(() => {
                 }
               },
             });
+
+            // Kanban board: expand cards
+            if (event.kind === 30301) {
+              actions.push({
+                label: "Expand kanban cards",
+                icon: "mdi-cards",
+                handler: () => expandKanbanCards(nodeId),
+              });
+            }
           }
 
           actions.push(

@@ -64,6 +64,7 @@ export function extractEdges(event: NostrEvent): GraphEdge[] {
 
   // Note: authored-by edges are created only when author nodes exist
   // This is handled explicitly in expansion functions
+  // Note: board-card edges (via 'a' tag) are created by connectCardsToBoard() in GraphView
 
   return edges
 }
@@ -82,6 +83,9 @@ function getEventLabel(event: NostrEvent): string {
     7: '❤️ Reaction',
     9735: '⚡ Zap',
     30023: '📄 Article',
+    30301: '📋 Board',
+    30302: '🗂️ Card',
+    30303: '📸 Snapshot',
   }
 
   const prefix = kindLabels[event.kind] || `Kind ${event.kind}`
