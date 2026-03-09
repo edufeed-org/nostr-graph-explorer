@@ -2084,7 +2084,7 @@ function renderEventNode(d: any): string {
       bodyContent = safe(event.content);
     }
   } else {
-    bodyContent = safe(event.content);
+    bodyContent = md.render(event.content);
   }
 
   // Calculate dynamic height based on content
