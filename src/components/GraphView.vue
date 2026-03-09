@@ -1618,7 +1618,7 @@ const {
   expandMentions,
   expandThread,
 } = useEventFetcher();
-const { testAllRelayConnections, loadRelaysFromDB } = useNostr();
+const { testAllRelayConnections, loadRelaysFromDB, getPool, relays: nostrRelays } = useNostr();
 
 const snackbar = ref({
   show: false,
@@ -4426,6 +4426,10 @@ async function searchNostrRelays() {
     const relayFilter: any = { ...parsedFilter };
     delete relayFilter.search; // Remove search field (not a standard NIP-01 filter)
 
+    // Extract naddr relay hints before sending filter to relay
+    const naddrRelays: string[] = relayFilter._relays || [];
+    delete relayFilter._relays;
+
     if (!relayFilter.kinds || relayFilter.kinds.length === 0) {
       relayFilter.kinds = [1, 30023]; // Default: notes and articles
     }
@@ -4435,9 +4439,26 @@ async function searchNostrRelays() {
     }
 
     console.log("[Search] Relay filter:", relayFilter);
+    if (naddrRelays.length > 0) {
+      console.log("[Search] Using naddr relay hints:", naddrRelays);
+    }
 
     // Fetch events from relays using the parsed filter
-    const events = await fetchInitialEvents([relayFilter]);
+    // If naddr relay hints exist, query those relays directly via pool
+    let events;
+    if (naddrRelays.length > 0) {
+      const pool = getPool();
+      const combinedRelays = [...new Set([...nostrRelays.value, ...naddrRelays])];
+      console.log("[Search] Querying combined relays:", combinedRelays);
+      events = await pool.querySync(combinedRelays, relayFilter);
+      // Also store events
+      if (events.length > 0) {
+        const { storeEvents } = await import('../db');
+        await storeEvents(events);
+      }
+    } else {
+      events = await fetchInitialEvents([relayFilter]);
+    }
 
     // Apply client-side text search if search text exists
     let matchingEvents = events;

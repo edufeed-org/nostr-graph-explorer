@@ -125,6 +125,32 @@ function decodeEventId(value: string): string | null {
   return null
 }
 
+function decodeNaddr(value: string): {
+  kind: number
+  pubkey: string
+  identifier: string
+  relays?: string[]
+} | null {
+  try {
+    const decoded = nip19.decode(value)
+    if (decoded.type === 'naddr') {
+      const data = decoded.data as {
+        identifier: string
+        pubkey: string
+        kind: number
+        relays?: string[]
+      }
+      return {
+        kind: data.kind,
+        pubkey: data.pubkey,
+        identifier: data.identifier,
+        relays: data.relays,
+      }
+    }
+  } catch {}
+  return null
+}
+
 function isNostrIdentifier(value: string): boolean {
   // Check if it looks like a nostr bech32 identifier
   return /^(npub|nprofile|note|nevent|naddr)[a-z0-9]{59,}$/i.test(value)
@@ -159,6 +185,20 @@ export function parseNostrQuery(q: string): NostrFilter {
         if (eventId) {
           filter.ids ??= []
           filter.ids.push(eventId)
+          continue
+        }
+
+        // Try to decode as naddr (addressable event)
+        const naddr = decodeNaddr(cleanToken)
+        if (naddr) {
+          filter.kinds = [naddr.kind]
+          filter.authors ??= []
+          filter.authors.push(naddr.pubkey)
+          filter['#d'] ??= []
+          filter['#d'].push(naddr.identifier)
+          if (naddr.relays?.length) {
+            ;(filter as any)._relays = naddr.relays
+          }
           continue
         }
       }
