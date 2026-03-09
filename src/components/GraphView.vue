@@ -4416,6 +4416,8 @@ async function searchNostrRelays() {
 
     // Parse the query using nostr-dsl
     const parsedFilter = parseNostrQuery(query);
+
+    parsedFilter.kinds = undefined
     console.log("[Search] Parsed filter:", parsedFilter);
 
     // Extract search text for client-side filtering
@@ -4423,16 +4425,13 @@ async function searchNostrRelays() {
 
     // Build Nostr filter for relay query
     // Start with parsed filter but ensure we have default kinds if none specified
+    // Keep 'search' field for NIP-50 full-text search support on relays
     const relayFilter: any = { ...parsedFilter };
-    delete relayFilter.search; // Remove search field (not a standard NIP-01 filter)
 
     // Extract naddr relay hints before sending filter to relay
     const naddrRelays: string[] = relayFilter._relays || [];
     delete relayFilter._relays;
 
-    if (!relayFilter.kinds || relayFilter.kinds.length === 0) {
-      relayFilter.kinds = [1, 30023]; // Default: notes and articles
-    }
 
     if (!relayFilter.limit) {
       relayFilter.limit = 100; // Default limit

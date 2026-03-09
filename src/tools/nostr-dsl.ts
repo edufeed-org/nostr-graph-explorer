@@ -225,6 +225,7 @@ export function parseNostrQuery(q: string): NostrFilter {
             filter.kinds!.push(...KIND_ALIASES[v])
           }
         })
+
         break
 
       case 'from':
@@ -293,6 +294,8 @@ export function parseNostrQuery(q: string): NostrFilter {
   if (searchParts.length) {
     filter.search = searchParts.join(' ').trim()
   }
+
+  console.log('Parsed filter:', filter)
 
   return filter
 }
