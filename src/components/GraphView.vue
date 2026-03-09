@@ -4692,8 +4692,6 @@ async function searchNostrRelays() {
         }
       }
 
-      // Automatically perform local search to highlight new results
-      setTimeout(() => performSearch(), 500);
     } else {
       showMessage("No matching events found on Nostr relays", "info");
     }
