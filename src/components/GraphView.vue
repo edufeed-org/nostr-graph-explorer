@@ -4800,7 +4800,8 @@ onMounted(() => {
         type: "timebar",
         key: "timebar",
         className: "g6-timebar",
-        zIndex: 10,
+        zIndex: 100,
+        padding: 66,
         data: timebarData.value,
         width: graphRef.value.offsetWidth - 20,
         height: 100,
@@ -7005,7 +7006,7 @@ defineExpose({
 
 .status-bar {
   position: absolute;
-  bottom: 16px;
+  top: calc(100vh - 98px);
   left: 16px;
   z-index: 10;
   display: flex;

@@ -352,7 +352,7 @@ function clearAll() {
 
 .status-bar {
   position: absolute;
-  bottom: 16px;
+  bottom: calc(100vh - 36px);
   left: 16px;
   z-index: 10;
   display: flex;
